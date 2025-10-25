@@ -3,7 +3,9 @@
   import { createClient } from "@supabase/supabase-js";
 
   const supabaseUrl = "https://nmzhlzkrkacftsbcvyka.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA"; // your anon key
+  const supabaseKey =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
+
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   let map, marker;
@@ -15,39 +17,45 @@
     // Fix default marker icon in Vite/SvelteKit
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
-      iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+      iconRetinaUrl:
+        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
       iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png"
+      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
 
-    // Start map in Yangon
-    const yangon = [16.8661, 96.1951];
-    map = L.map("map").setView(yangon, 13);
+    const fallbackPos = [16.8661, 96.1951]; // Yangon fallback
+
+    // ======== Fetch latest location first ========
+    const { data: rows } = await supabase
+      .from("locations")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    const initialPos =
+      rows && rows.length > 0 ? [rows[0].lat, rows[0].lng] : fallbackPos;
+
+    // Create map & initial marker
+    map = L.map("map").setView(initialPos, 13);
+    marker = L.marker(initialPos).addTo(map);
 
     // Load OpenStreetMap tiles
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
-      maxZoom: 19
+      maxZoom: 19,
     }).addTo(map);
 
-    // Initial marker
-    marker = L.marker(yangon).addTo(map);
-
     // ======== Subscribe to Supabase 'locations' table ========
-    const { data: subscription } = supabase
-      .from("locations:id=eq.1") // replace 1 with your device ID
-      .on("INSERT", payload => updateMarker(payload.new))
-      .on("UPDATE", payload => updateMarker(payload.new))
+    supabase
+      .from("locations")
+      .on("INSERT", (payload) => updateMarker(payload.new))
+      .on("UPDATE", (payload) => updateMarker(payload.new))
       .subscribe();
-
-    // Initial fetch in case table already has data
-    const { data: rows } = await supabase.from("locations").select("*").eq("id", 1);
-    if (rows && rows.length > 0) {
-      updateMarker(rows[0]);
-    }
 
     function updateMarker(loc) {
       const { lat, lng } = loc;
+
+      // Move marker & recenter map
       marker.setLatLng([lat, lng]);
       map.setView([lat, lng], map.getZoom());
 
@@ -80,8 +88,14 @@
   }
 
   @keyframes sparkle {
-    0% { transform: scale(0); opacity: 1; }
-    100% { transform: scale(2); opacity: 0; }
+    0% {
+      transform: scale(0);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(2);
+      opacity: 0;
+    }
   }
 </style>
 

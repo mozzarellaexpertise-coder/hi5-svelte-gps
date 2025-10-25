@@ -1,86 +1,62 @@
 <script>
   import { onMount } from "svelte";
-  import { initializeApp } from "firebase/app";
-  import { getFirestore, doc, onSnapshot } from "firebase/firestore";
+  import { createClient } from "@supabase/supabase-js";
 
   let map, marker;
+  const supabaseUrl = "https://nmzhlzkrkacftsbcvyka.supabase.co";
+  const supabaseKey =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   onMount(async () => {
-    const L = await import('leaflet');
-    await import('leaflet/dist/leaflet.css');
+    const L = await import("leaflet");
+    await import("leaflet/dist/leaflet.css");
 
-    // Fix default marker icon in Vite/SvelteKit
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
+      iconRetinaUrl:
+        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
 
-    // ======== Test with fixed NYC coordinates ========
-    const nyc = [40.7128, -74.0060];
-    map = L.map("map").setView(nyc, 13);
-
-    // Load OSM tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
+    // Default NYC location
+    const start = [40.7128, -74.006];
+    map = L.map("map").setView(start, 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
     }).addTo(map);
+    marker = L.marker(start).addTo(map);
 
-    // Marker at NYC
-    marker = L.marker(nyc).addTo(map);
+    // Load initial coordinates from Supabase
+    const { data } = await supabase.from("locations").select("*").eq("id", 1).single();
+    if (data) {
+      marker.setLatLng([data.lat, data.lng]);
+      map.setView([data.lat, data.lng], 13);
+    }
 
-    // Sparkle effect
-    const mapDiv = document.getElementById("map");
-    const sparkle = document.createElement("div");
-    sparkle.style.position = "absolute";
-    sparkle.style.width = "12px";
-    sparkle.style.height = "12px";
-    sparkle.style.borderRadius = "50%";
-    sparkle.style.background = "#ff4081";
-    sparkle.style.boxShadow = "0 0 12px currentColor, 0 0 20px currentColor";
-
-    const point = map.latLngToContainerPoint(nyc);
-    sparkle.style.left = point.x + "px";
-    sparkle.style.top = point.y + "px";
-    sparkle.style.animation = "sparkle 1s forwards";
-
-    mapDiv.appendChild(sparkle);
-    setTimeout(() => sparkle.remove(), 1000);
-
-    // ======== Ready for Firebase live updates ========
-    /*
-    const firebaseConfig = {
-      apiKey: "<YOUR-API-KEY>",
-      authDomain: "<YOUR-PROJECT>.firebaseapp.com",
-      projectId: "<YOUR-PROJECT-ID>"
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const locRef = doc(db, "locations", "myDevice");
-
-    onSnapshot(locRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const { lat, lng } = docSnap.data();
-        marker.setLatLng([lat, lng]);
-        map.setView([lat, lng], map.getZoom());
-        // Optional: add sparkles per update
-      }
-    });
-    */
+    // Real-time updates via Supabase
+    supabase
+      .channel("locations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "locations" },
+        (payload) => {
+          const { lat, lng } = payload.new;
+          marker.setLatLng([lat, lng]);
+          map.setView([lat, lng], map.getZoom());
+        }
+      )
+      .subscribe();
   });
 </script>
 
 <style>
 #map {
-  height: 500px; /* MUST have height */
+  height: 500px;
   width: 100%;
   position: relative;
-}
-
-@keyframes sparkle {
-  0% { transform: scale(0); opacity: 1; }
-  100% { transform: scale(2); opacity: 0; }
 }
 </style>
 

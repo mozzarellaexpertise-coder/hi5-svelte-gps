@@ -5,9 +5,10 @@
   const supabaseUrl = "https://nmzhlzkrkacftsbcvyka.supabase.co";
   const supabaseKey =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
-  const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const deviceId = 1; // <-- your device ID
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const deviceId = 1; // your device ID
+
   let map, marker;
 
   onMount(async () => {
@@ -23,8 +24,8 @@
       shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
 
-    // Start map somewhere in Yangon as default
-    const defaultPos = [16.8661, 96.1951];
+    // Temporary default (in case no data yet)
+    const defaultPos = [16.9008, 96.1111];
     map = L.map("map").setView(defaultPos, 16);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -34,14 +35,7 @@
 
     marker = L.marker(defaultPos).addTo(map);
 
-    // Subscribe to your device location only
-    const { data: subscription } = supabase
-      .from(`locations:device_id=eq.${deviceId}`)
-      .on("INSERT", (payload) => updateMarker(payload.new))
-      .on("UPDATE", (payload) => updateMarker(payload.new))
-      .subscribe();
-
-    // Initial fetch
+    // Fetch latest location first
     const { data: rows } = await supabase
       .from("locations")
       .select("*")
@@ -49,7 +43,18 @@
       .order("updated_at", { ascending: false })
       .limit(1);
 
-    if (rows && rows.length > 0) updateMarker(rows[0]);
+    if (rows && rows.length > 0) {
+      const loc = rows[0];
+      marker.setLatLng([loc.lat, loc.lng]);
+      map.setView([loc.lat, loc.lng], 16);
+    }
+
+    // Subscribe to live updates
+    supabase
+      .from(`locations:device_id=eq.${deviceId}`)
+      .on("INSERT", (payload) => updateMarker(payload.new))
+      .on("UPDATE", (payload) => updateMarker(payload.new))
+      .subscribe();
 
     function updateMarker(loc) {
       const { lat, lng } = loc;

@@ -1,20 +1,25 @@
+<script context="module">
+  // Disable SSR for this browser-only component
+  export const ssr = false;
+</script>
+
 <script>
   import { onMount } from "svelte";
-  import { createClient } from "@supabase/supabase-js";
-
-  const supabaseUrl = "https://nmzhlzkrkacftsbcvyka.supabase.co";
-  const supabaseKey =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  import "leaflet/dist/leaflet.css";
 
   let map, marker;
 
-  onMount(async () => {
-    const L = await import("leaflet");
-    await import("leaflet/dist/leaflet.css");
+  const SUPABASE_URL = "https://nmzhlzkrkacftsbcvyka.supabase.co";
+  const SUPABASE_ANON_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
 
-    // Fix default marker icon in Vite/SvelteKit
+  onMount(async () => {
+    // Dynamic import for SSR safety
+    const L = (await import("leaflet")).default;
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Fix Leaflet marker icons
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl:
@@ -25,7 +30,7 @@
 
     const fallbackPos = [16.8661, 96.1951]; // Yangon fallback
 
-    // ======== Fetch latest location first ========
+    // Fetch latest location first
     const { data: rows } = await supabase
       .from("locations")
       .select("*")
@@ -39,13 +44,12 @@
     map = L.map("map").setView(initialPos, 13);
     marker = L.marker(initialPos).addTo(map);
 
-    // Load OpenStreetMap tiles
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19,
     }).addTo(map);
 
-    // ======== Subscribe to Supabase 'locations' table ========
+    // Subscribe to live updates
     supabase
       .from("locations")
       .on("INSERT", (payload) => updateMarker(payload.new))
@@ -67,7 +71,8 @@
       sparkle.style.height = "12px";
       sparkle.style.borderRadius = "50%";
       sparkle.style.background = "#ff4081";
-      sparkle.style.boxShadow = "0 0 12px currentColor, 0 0 20px currentColor";
+      sparkle.style.boxShadow =
+        "0 0 12px currentColor, 0 0 20px currentColor";
 
       const point = map.latLngToContainerPoint([lat, lng]);
       sparkle.style.left = point.x + "px";
@@ -84,6 +89,8 @@
   #map {
     height: 500px;
     width: 100%;
+    max-width: 800px;
+    margin: auto;
     position: relative;
   }
 

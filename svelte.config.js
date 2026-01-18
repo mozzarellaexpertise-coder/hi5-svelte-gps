@@ -1,9 +1,17 @@
 import adapter from '@sveltejs/adapter-vercel';
-import sveltePreprocess from 'svelte-preprocess';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-export default {
-  preprocess: sveltePreprocess(),
-  kit: {
-    adapter: adapter(),
-  }
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+	// This is essential for Svelte 5 and full-screen layouts
+	preprocess: vitePreprocess(),
+
+	kit: {
+		adapter: adapter(),
+		alias: {
+			$lib: './src/lib'
+		}
+	}
 };
+
+export default config;

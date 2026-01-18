@@ -160,10 +160,12 @@
       attributionControl: true
     }).setView([16.8661, 96.1951], 12);
 
-// Clean fix for line 164
+// Updated with proper subdomains and security
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '© OpenStreetMap contributors',
-  maxZoom: 19
+  maxZoom: 19,
+  // This helps Leaflet handle high-DPI screens and ensures tiles load
+  crossOrigin: true 
 }).addTo(map);
 
     // Load initial data

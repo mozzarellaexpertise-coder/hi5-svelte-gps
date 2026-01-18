@@ -1,7 +1,10 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { createClient } from "@supabase/supabase-js";
+  import L from "leaflet";
+  import "leaflet/dist/leaflet.css";
 
+  // Supabase client
   const supabase = createClient(
     "https://uygdeyofmqhfnpyrqtpf.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
@@ -11,130 +14,202 @@
   let markers = {};
   let channel;
   let hasCentered = false;
+  let activeUsers = 0;
+  let totalUpdates = 0;
+  let lastUpdateTime = null;
+  let connectionStatus = "Connecting...";
+  let userList = [];
 
-  function updateMarker(user, L) {
-    const { user_id, lat, lng } = user;
-    if (!lat || !lng) return;
+  // Marker icon
+  function getMarkerIcon(status) {
+    const colors = {
+      STATIONARY: "#6c757d",
+      WALKING: "#28a745",
+      RUNNING: "#ffc107",
+      VEHICLE: "#dc3545"
+    };
+    const color = colors[status] || "#007bff";
+
+    return L.divIcon({
+      className: "custom-marker",
+      html: `<div style="
+        background: ${color};
+        width: 30px;
+        height: 30px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 3px solid white;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        position: relative;
+      ">
+        <div style="
+          position: absolute;
+          width: 10px;
+          height: 10px;
+          background: white;
+          border-radius: 50%;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+        "></div>
+      </div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+      popupAnchor: [0, -30]
+    });
+  }
+
+  // Update or add marker
+  function updateMarker(user) {
+    const { user_id, lat, lng, status, speed, updated_at } = user;
+    if (!lat || !lng || !map) return;
+
+    const popupContent = `
+      <div style="font-family:sans-serif; min-width:200px;">
+        <h4>📍 Device ${user_id.slice(0,8)}</h4>
+        <div>
+          <strong>Status:</strong> ${status || "UNKNOWN"}<br/>
+          <strong>Speed:</strong> ${speed?.toFixed(2) || "0.00"} m/s<br/>
+          <strong>Coordinates:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br/>
+          <strong>Last Update:</strong> ${new Date(updated_at).toLocaleString()}
+        </div>
+      </div>
+    `;
 
     if (markers[user_id]) {
       markers[user_id].setLatLng([lat, lng]);
+      markers[user_id].setIcon(getMarkerIcon(status));
+      markers[user_id].getPopup().setContent(popupContent);
     } else {
-      // Custom Red Marker for "Troops"
-      const troopIcon = L.divIcon({
-        className: 'troop-marker',
-        html: `<div class="pulse-ring"></div><div class="dot"></div>`,
-        iconSize: [20, 20]
-      });
-
-      markers[user_id] = L.marker([lat, lng], { icon: troopIcon })
-        .bindPopup(`<b>Troop ID:</b> ${user_id.slice(0, 8)}`)
+      markers[user_id] = L.marker([lat, lng], { icon: getMarkerIcon(status) })
+        .bindPopup(popupContent)
         .addTo(map);
+      activeUsers++;
     }
 
     if (!hasCentered) {
-      map.setView([lat, lng], 16);
+      map.setView([lat, lng], 15);
       hasCentered = true;
+    }
+
+    // Update sidebar list
+    const idx = userList.findIndex(u => u.user_id === user_id);
+    if (idx !== -1) userList[idx] = user;
+    else userList.push(user);
+    userList = userList; // trigger reactivity
+
+    totalUpdates++;
+    lastUpdateTime = new Date();
+  }
+
+  function focusUser(user) {
+    if (map && user.lat && user.lng) {
+      map.setView([user.lat, user.lng], 17);
+      markers[user.user_id]?.openPopup();
     }
   }
 
-  onMount(async () => {
-    const L = await import("leaflet");
-    await import("leaflet/dist/leaflet.css");
+  function removeInactiveUsers() {
+    const now = Date.now();
+    const timeout = 5 * 60 * 1000; // 5 minutes
 
-    // Initialize Map to absolute full screen
-    map = L.map("map", { zoomControl: false }).setView([16.8661, 96.1951], 13);
-    
-    L.tileLayer("https://{s}.tile.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap"
+    Object.entries(markers).forEach(([id, marker]) => {
+      const user = userList.find(u => u.user_id === id);
+      if (user && now - new Date(user.updated_at).getTime() > timeout) {
+        map.removeLayer(marker);
+        delete markers[id];
+        userList = userList.filter(u => u.user_id !== id);
+        activeUsers--;
+      }
+    });
+  }
+
+  onMount(async () => {
+    // Initialize map
+    map = L.map("map", { zoomControl: true }).setView([16.8661, 96.1951], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19
     }).addTo(map);
 
-    // Initial Fetch
-    const { data } = await supabase.from("locations").select("*");
-    if (data) data.forEach(u => updateMarker(u, L));
+    // Load initial data
+    connectionStatus = "Loading initial data...";
+    const { data, error } = await supabase.from("locations").select("*");
+    if (error) {
+      console.error(error);
+      connectionStatus = "❌ Error loading data";
+    } else {
+      data?.forEach(updateMarker);
+      connectionStatus = data?.length ? "✅ Connected" : "⏳ Waiting for devices...";
+    }
 
-    // Live Sync
-    channel = supabase.channel("live-locations")
-      .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, 
-        (payload) => updateMarker(payload.new, L)
-      ).subscribe();
+    // Realtime subscription
+    channel = supabase
+      .channel("live-locations")
+      .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, (payload) => {
+        if (payload.new) updateMarker(payload.new);
+        connectionStatus = "✅ Live";
+      })
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") connectionStatus = "✅ Live";
+        else if (status === "CHANNEL_ERROR") connectionStatus = "⚠️ Connection error";
+      });
+
+    const cleanupInterval = setInterval(removeInactiveUsers, 60000);
+
+    return () => clearInterval(cleanupInterval);
   });
 
-  onDestroy(() => { if (channel) supabase.removeChannel(channel); });
+  onDestroy(() => {
+    if (channel) supabase.removeChannel(channel);
+    if (map) map.remove();
+  });
 </script>
 
-<div class="monitor-wrapper">
-  <div class="hud-sidebar">
-    <div class="glitch-header">COMMAND CENTER</div>
-    <div class="logic-label">INDEX 5.2 ACTIVE</div>
-    
-    <div class="prediction-list">
-      <div class="pred-item"><span>01</span> <strong>24</strong></div>
-      <div class="pred-item"><span>02</span> <strong>81</strong></div>
-      <div class="pred-item"><span>03</span> <strong>07</strong></div>
+<div class="viewer-container">
+  <header class="header">
+    <h1>🌍 Live Traffic Monitor</h1>
+    <div class="status-indicator" class:connected={connectionStatus.includes('✅')}>
+      <span class="status-dot"></span> {connectionStatus}
     </div>
-    
-    <div class="system-status">
-        <span class="blink">●</span> SECURE STREAM: ON
-    </div>
-  </div>
+  </header>
 
-  <div id="map"></div>
+  <div class="main-content">
+    <aside class="sidebar">
+      <h3>📊 Active Devices: {activeUsers}</h3>
+
+      <div class="prediction-panel">
+        {#each userList.sort((a,b)=> (b.speed||0)-(a.speed||0)).slice(0,3) as user, i}
+          <div>Row {i+1}: {user.user_id.slice(0,4)} - {(Math.abs(user.lat*100)%100).toFixed(0)}%</div>
+        {/each}
+      </div>
+
+      <div class="user-list">
+        {#each userList as user (user.user_id)}
+          <div class="user-card" on:click={() => focusUser(user)}>
+            <span>{user.status==='STATIONARY'?'⏸️':user.status==='WALKING'?'🚶':user.status==='RUNNING'?'🏃':user.status==='VEHICLE'?'🚗':'📍'}</span>
+            {user.user_id.slice(0,8)} - {user.status}
+          </div>
+        {/each}
+      </div>
+    </aside>
+
+    <div id="map"></div>
+  </div>
 </div>
 
 <style>
-  /* Remove all browser scrollbars and spacing */
-  :global(body, html) { 
-    margin: 0; padding: 0; width: 100vw; height: 100vh; 
-    overflow: hidden; background: #000;
-  }
-
-  .monitor-wrapper {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
-  }
-
-  #map {
-    width: 100%;
-    height: 100%;
-    z-index: 1;
-  }
-
-  /* HUD Overlay Styling */
-  .hud-sidebar {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    z-index: 1000; /* Above the map */
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(10px);
-    border: 1px solid #ff4081;
-    padding: 20px;
-    color: white;
-    font-family: 'Courier New', Courier, monospace;
-    width: 220px;
-    pointer-events: none; /* Allow clicking through to the map */
-  }
-
-  .glitch-header { font-weight: bold; font-size: 1.2rem; color: #ff4081; border-bottom: 1px solid #ff4081; margin-bottom: 5px; }
-  .logic-label { font-size: 0.7rem; margin-bottom: 20px; opacity: 0.7; }
-
-  .pred-item { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; background: rgba(255, 64, 129, 0.1); padding: 10px; border-left: 3px solid #ff4081; }
-  .pred-item strong { font-size: 1.4rem; }
-  .pred-item span { font-size: 0.6rem; color: #ff4081; }
-
-  .system-status { font-size: 0.7rem; color: #4caf50; margin-top: 15px; }
-  .blink { animation: blinker 1s linear infinite; }
-  @keyframes blinker { 50% { opacity: 0; } }
-
-  /* Troop Marker Pulse Effect */
-  :global(.troop-marker) { position: relative; }
-  :global(.dot) { width: 10px; height: 10px; background: #ff4081; border-radius: 50%; box-shadow: 0 0 10px #ff4081; }
-  :global(.pulse-ring) {
-    position: absolute; width: 30px; height: 30px;
-    border: 2px solid #ff4081; border-radius: 50%;
-    top: -10px; left: -10px;
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(2); opacity: 0; } }
+  html, body { margin:0; padding:0; height:100%; width:100%; font-family:sans-serif; }
+  .viewer-container { display:flex; flex-direction:column; height:100vh; width:100vw; }
+  .header { padding:10px 20px; background:linear-gradient(135deg,#1e3c72,#2a5298); color:white; display:flex; justify-content:space-between; align-items:center; }
+  .status-indicator { display:flex; align-items:center; gap:8px; }
+  .status-dot { width:10px;height:10px;border-radius:50%; background:#ffc107; }
+  .status-indicator.connected .status-dot { background:#28a745; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.5} }
+  .main-content { display:flex; flex:1; overflow:hidden; height: calc(100vh - 70px); }
+  .sidebar { width:300px; background:white; border-right:1px solid #ccc; display:flex; flex-direction:column; overflow:auto; padding:10px; }
+  #map { flex:1; height:100%; }
+  .user-card { padding:8px; border:1px solid #eee; margin-bottom:5px; cursor:pointer; border-radius:6px; transition:0.2s; }
+  .user-card:hover { border-color:#2a5298; transform:translateY(-2px); box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+  .prediction-panel { background:#fff9c4; border:1px solid #fbc02d; padding:8px; border-radius:6px; margin-bottom:10px; }
 </style>

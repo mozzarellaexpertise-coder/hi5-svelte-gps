@@ -2,82 +2,60 @@
   import { onMount } from "svelte";
   import { createClient } from "@supabase/supabase-js";
 
-  const supabaseUrl = "https://nmzhlzkrkacftsbcvyka.supabase.co";
-  const supabaseKey =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5temhsemtya2FjZnRzYmN2eWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEzMzQ2MzAsImV4cCI6MjA3NjkxMDYzMH0.kVmZ500dylxoirex8kXxz7Y-TkJn2bJhGaG6SKru6bA";
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
-  const deviceId = 1; // your device ID
-
-  let map, marker;
+  const supabase = createClient("https://nmzhlzkrkacftsbcvyka.supabase.co", "YOUR_ANON_KEY");
+  
+  let map, markers = {}; // Store markers by user ID
+  const channel = supabase.channel('online-users');
 
   onMount(async () => {
     const L = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
 
-    // Fix default marker icon
-    delete L.Icon.Default.prototype._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl:
-        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    });
+    map = L.map("map").setView([16.8, 96.1], 12); // Default to Yangon center
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-    // Temporary default (in case no data yet)
-    const defaultPos = [16.9008, 96.1111];
-    map = L.map("map").setView(defaultPos, 16);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-      maxZoom: 19,
-    }).addTo(map);
-
-    marker = L.marker(defaultPos).addTo(map);
-
-    // Fetch latest location first
-    const { data: rows } = await supabase
-      .from("locations")
-      .select("*")
-      .eq("device_id", deviceId)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-
-    if (rows && rows.length > 0) {
-      const loc = rows[0];
-      marker.setLatLng([loc.lat, loc.lng]);
-      map.setView([loc.lat, loc.lng], 16);
+    // 1. WATCH MY POSITION AND BROADCAST
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        
+        // Track the user's own movements in the "Presence" state
+        channel.track({
+          user: 'User_' + Math.floor(Math.random() * 1000),
+          lat: latitude,
+          lng: longitude,
+          online_at: new Date().toISOString(),
+        });
+      });
     }
 
-    // Subscribe to live updates
-    supabase
-      .from(`locations:device_id=eq.${deviceId}`)
-      .on("INSERT", (payload) => updateMarker(payload.new))
-      .on("UPDATE", (payload) => updateMarker(payload.new))
+    // 2. LISTEN FOR ALL USERS
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const newState = channel.presenceState();
+        updateMapMarkers(newState);
+      })
       .subscribe();
 
-    function updateMarker(loc) {
-      const { lat, lng } = loc;
-      marker.setLatLng([lat, lng]);
-      map.setView([lat, lng], map.getZoom());
+    function updateMapMarkers(state) {
+      // Loop through all users synced in Supabase Presence
+      Object.keys(state).forEach((id) => {
+        const userDetails = state[id][0];
+        const { lat, lng, user } = userDetails;
 
-      // Sparkle effect
-      const mapDiv = document.getElementById("map");
-      const sparkle = document.createElement("div");
-      sparkle.style.position = "absolute";
-      sparkle.style.width = "12px";
-      sparkle.style.height = "12px";
-      sparkle.style.borderRadius = "50%";
-      sparkle.style.background = "#ff4081";
-      sparkle.style.boxShadow = "0 0 12px currentColor, 0 0 20px currentColor";
-
-      const point = map.latLngToContainerPoint([lat, lng]);
-      sparkle.style.left = point.x + "px";
-      sparkle.style.top = point.y + "px";
-      sparkle.style.animation = "sparkle 1s forwards";
-
-      mapDiv.appendChild(sparkle);
-      setTimeout(() => sparkle.remove(), 1000);
+        if (markers[id]) {
+          // Move existing marker
+          markers[id].setLatLng([lat, lng]);
+        } else {
+          // Add new marker for new user
+          markers[id] = L.marker([lat, lng])
+            .addTo(map)
+            .bindPopup(`Active: ${user}`)
+            .openPopup();
+            
+          // Trigger your Sparkle effect here for new arrivals!
+        }
+      });
     }
   });
 </script>

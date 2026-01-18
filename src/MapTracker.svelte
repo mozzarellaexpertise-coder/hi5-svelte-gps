@@ -1,64 +1,91 @@
 <script>
   import { onMount } from "svelte";
-  import { initializeApp } from "firebase/app";
-  import { getFirestore, doc, onSnapshot } from "firebase/firestore";
-  import L from "leaflet";
+  import { createClient } from "@supabase/supabase-js";
 
-  // Firebase config
-  const firebaseConfig = {
-    apiKey: "<YOUR-API-KEY>",
-    authDomain: "<YOUR-PROJECT>.firebaseapp.com",
-    projectId: "<YOUR-PROJECT-ID>"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  // ⚠️ Use ANON public key ONLY for viewer
+  const supabase = createClient(
+    "https://nmzhlzkrkacftsbcvyka.supabase.co",
+    "YOUR_PUBLIC_ANON_KEY"
+  );
 
   let map;
-  let marker;
+  let markers = {};
 
-  onMount(() => {
-    // Initialize map
-    map = L.map("map").setView([0,0], 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+  onMount(async () => {
+    const L = await import("leaflet");
+    await import("leaflet/dist/leaflet.css");
 
-    // Add marker
-    marker = L.marker([0,0]).addTo(map);
-
-    const locRef = doc(db, "locations", "myDevice");
-
-    // Listen to Firestore updates
-    onSnapshot(locRef, (docSnap) => {
-      if(docSnap.exists()) {
-        const { lat, lng } = docSnap.data();
-        marker.setLatLng([lat, lng]);
-        map.setView([lat, lng], map.getZoom());
-
-        // Hi5 sparkle effect
-        const sparkle = document.createElement("div");
-        sparkle.style.position = "absolute";
-        sparkle.style.width = "12px";
-        sparkle.style.height = "12px";
-        sparkle.style.borderRadius = "50%";
-        sparkle.style.background = ["#ff4081","#3f51b5","#ffeb3b","#4caf50","#ff9800"][Math.floor(Math.random()*5)];
-        sparkle.style.top = Math.random() * 480 + "px";
-        sparkle.style.left = Math.random() * 800 + "px";
-        sparkle.style.boxShadow = "0 0 12px currentColor,0 0 20px currentColor";
-        sparkle.style.animation = "sparkle 1s forwards";
-        document.getElementById("map").appendChild(sparkle);
-        setTimeout(()=>sparkle.remove(),1000);
-      }
+    // Fix Leaflet icons
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
+
+    // Init map
+    map = L.map("map").setView([16.8661, 96.1951], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+
+    // 1️⃣ Load existing users
+    const { data, error } = await supabase
+      .from("locations")
+      .select("*");
+
+    if (!error && data) {
+      data.forEach(user => {
+        markers[user.user_id] =
+          L.marker([user.lat, user.lng])
+            .bindPopup(`User: ${user.user_id}`)
+            .addTo(map);
+      });
+    }
+
+    // 2️⃣ Realtime subscription
+    supabase
+      .channel("live-locations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "locations" },
+        payload => {
+          const { user_id, lat, lng } = payload.new;
+
+          if (markers[user_id]) {
+            markers[user_id].setLatLng([lat, lng]);
+          } else {
+            markers[user_id] =
+              L.marker([lat, lng])
+                .bindPopup(`User: ${user_id}`)
+                .addTo(map);
+          }
+        }
+      )
+      .subscribe();
   });
 </script>
 
+<div class="viewer">
+  <h2>🌍 Live User Map</h2>
+  <div id="map"></div>
+</div>
+
 <style>
-#map { height: 500px; width: 100%; position: relative; }
+  .viewer {
+    padding: 1rem;
+    font-family: system-ui, sans-serif;
+  }
 
-@keyframes sparkle {
-  0% { transform: scale(0); opacity: 1; }
-  100% { transform: scale(2); opacity: 0; }
-}
+  h2 {
+    margin-bottom: 0.5rem;
+    text-align: center;
+  }
+
+  #map {
+    height: 80vh;
+    width: 100%;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
 </style>
-
-<div id="map"></div>

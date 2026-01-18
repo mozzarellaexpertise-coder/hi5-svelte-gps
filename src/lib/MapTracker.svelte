@@ -2,21 +2,20 @@
   import { onMount } from "svelte";
   import { createClient } from "@supabase/supabase-js";
 
-  // Using the credentials you provided
+  // ⚠️ Use ANON public key ONLY for viewer
   const supabase = createClient(
-    "https://nmzhlzkrkacftsbcvyka.supabase.co", 
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." // Your key
+    "https://nmzhlzkrkacftsbcvyka.supabase.co",
+    "YOUR_PUBLIC_ANON_KEY"
   );
 
-  let map, marker;
-  const deviceId = 1;
+  let map;
+  let markers = {};
 
   onMount(async () => {
-    // 2026 dynamic import to prevent SSR errors
     const L = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
 
-    // Fix for Leaflet marker icons in SvelteKit
+    // Fix Leaflet icons
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -24,43 +23,69 @@
       shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
 
-    map = L.map("map").setView([16.9008, 96.1111], 16);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
-    marker = L.marker([16.9008, 96.1111]).addTo(map);
+    // Init map
+    map = L.map("map").setView([16.8661, 96.1951], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
 
-    // Watch real-time location and update Supabase
-    if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        await supabase.from("locations").update({ lat: latitude, lng: longitude }).eq("device_id", deviceId);
-        
-        // Local update for the user
-        marker.setLatLng([latitude, longitude]);
-        map.setView([latitude, longitude], map.getZoom());
-        showSparkle(latitude, longitude);
+    // 1️⃣ Load existing users
+    const { data, error } = await supabase
+      .from("locations")
+      .select("*");
+
+    if (!error && data) {
+      data.forEach(user => {
+        markers[user.user_id] =
+          L.marker([user.lat, user.lng])
+            .bindPopup(`User: ${user.user_id}`)
+            .addTo(map);
       });
     }
 
-    function showSparkle(lat, lng) {
-      const point = map.latLngToContainerPoint([lat, lng]);
-      const sparkle = document.createElement("div");
-      sparkle.className = "sparkle-effect";
-      sparkle.style.left = point.x + "px";
-      sparkle.style.top = point.y + "px";
-      document.getElementById("map").appendChild(sparkle);
-      setTimeout(() => sparkle.remove(), 1000);
-    }
+    // 2️⃣ Realtime subscription
+    supabase
+      .channel("live-locations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "locations" },
+        payload => {
+          const { user_id, lat, lng } = payload.new;
+
+          if (markers[user_id]) {
+            markers[user_id].setLatLng([lat, lng]);
+          } else {
+            markers[user_id] =
+              L.marker([lat, lng])
+                .bindPopup(`User: ${user_id}`)
+                .addTo(map);
+          }
+        }
+      )
+      .subscribe();
   });
 </script>
 
-<div id="map"></div>
+<div class="viewer">
+  <h2>🌍 Live User Map</h2>
+  <div id="map"></div>
+</div>
 
 <style>
-  #map { height: 500px; width: 100%; position: relative; border-radius: 12px; }
-  :global(.sparkle-effect) {
-    position: absolute; width: 12px; height: 12px; border-radius: 50%;
-    background: #ff4081; box-shadow: 0 0 12px #ff4081;
-    animation: sparkle 1s forwards; pointer-events: none;
+  .viewer {
+    padding: 1rem;
+    font-family: system-ui, sans-serif;
   }
-  @keyframes sparkle { 0% { transform: scale(0); opacity: 1; } 100% { transform: scale(2); opacity: 0; } }
+
+  h2 {
+    margin-bottom: 0.5rem;
+    text-align: center;
+  }
+
+  #map {
+    height: 80vh;
+    width: 100%;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
 </style>

@@ -19,6 +19,7 @@
   let userList = [];
   const formulaNote = "Formula: [ΔLocation / Time] + Base_Offset = Pred_Index";
 
+  // Dynamic Marker Colors
   function getMarkerIcon(status) {
     const colors = { STATIONARY: "#6c757d", WALKING: "#28a745", RUNNING: "#ffc107", VEHICLE: "#dc3545" };
     const color = colors[status] || "#007bff";
@@ -42,7 +43,7 @@
     const { user_id, lat, lng, status, speed } = user;
     if (!lat || !lng || !map || !L) return;
 
-    const popupContent = `<b>Device ${user_id.slice(0, 8)}</b><br>Status: ${status}`;
+    const popupContent = `<b>Device ${user_id.slice(0, 8)}</b><br>Status: ${status}<br>Speed: ${speed?.toFixed(2)} m/s`;
 
     if (markers[user_id]) {
       markers[user_id].setLatLng([lat, lng]);
@@ -73,10 +74,12 @@
         maxZoom: 19
       }).addTo(map);
 
+      // Fetch initial data
       const { data } = await supabase.from("locations").select("*");
       data?.forEach(updateMarker);
       connectionStatus = "✅ Live";
 
+      // Listen for Realtime updates
       channel = supabase.channel("live-locations")
         .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, (p) => {
           if (p.new) updateMarker(p.new);
@@ -102,14 +105,15 @@
     <div id="map"></div>
 
     <section class="bottom-panel">
+      
       <div class="prediction-box">
         <div class="panel-header">🎯 TOP 3 PREDICTIONS</div>
         <div class="rows-container">
           {#each userList.sort((a,b)=> (b.speed||0)-(a.speed||0)).slice(0,3) as user, i}
-            <div class="row-item" on:click={() => focusUser(user)}>
+            <div class="row-item" on:click={() => focusUser(user)} role="button" tabindex="0">
               <span class="rank">#{i+1}</span>
-              <span class="id">{user.user_id.slice(0,4)}</span>
-              <span class="chance">{(Math.abs(user.lat*100)%100).toFixed(0)}%</span>
+              <span class="id">{user.user_id.slice(0,8)}</span>
+              <span class="chance">{(Math.abs(user.lat*100)%100).toFixed(0)}% Prob.</span>
             </div>
           {/each}
         </div>
@@ -121,21 +125,24 @@
         <div class="horizontal-scroll">
           {#each userList as user (user.user_id)}
             <button class="device-pill" on:click={() => focusUser(user)}>
-              {user.status === 'VEHICLE' ? '🚗' : '🚶'} {user.user_id.slice(0,4)}
+              <span class="status-icon">{user.status === 'VEHICLE' ? '🚗' : user.status === 'WALKING' ? '🚶' : '📍'}</span>
+              {user.user_id.slice(0,4)}
             </button>
           {/each}
         </div>
       </div>
+
     </section>
   </main>
 </div>
 
 <style>
-  :global(body, html) { margin:0; padding:0; height:100%; overflow:hidden; font-family: sans-serif; }
-  .viewer-container { display:flex; flex-direction:column; height:100vh; background: #f4f4f4; }
+  :global(body, html) { margin:0; padding:0; height:100%; overflow:hidden; font-family: -apple-system, system-ui, sans-serif; }
+  
+  .viewer-container { display:flex; flex-direction:column; height:100vh; background: #111; }
   
   .header { 
-    padding: 8px 15px; 
+    padding: 10px 20px; 
     background: #1e3c72; 
     color: white; 
     display: flex; 
@@ -143,49 +150,55 @@
     align-items: center;
     z-index: 1000;
   }
-  .header h1 { font-size: 1.1rem; margin: 0; }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .header h1 { font-size: 1.2rem; margin: 0; letter-spacing: 1px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
 
   .layout { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
-  #map { flex: 2; width: 100%; min-height: 50vh; }
+  #map { flex: 2; width: 100%; min-height: 50vh; background: #222; }
 
+  /* Bottom Panel Styling */
   .bottom-panel { 
     flex: 1; 
     background: white; 
     display: grid; 
-    grid-template-columns: 1.2fr 1fr;
-    gap: 10px;
-    padding: 10px;
-    border-top: 3px solid #1e3c72;
-    box-shadow: 0 -5px 15px rgba(0,0,0,0.1);
+    grid-template-columns: 1.3fr 1fr;
+    gap: 15px;
+    padding: 15px;
+    border-top: 4px solid #1e3c72;
+    box-shadow: 0 -5px 20px rgba(0,0,0,0.2);
     z-index: 1000;
   }
 
-  .panel-header { font-size: 0.75rem; font-weight: bold; color: #666; margin-bottom: 5px; text-transform: uppercase; }
+  .panel-header { font-size: 0.7rem; font-weight: bold; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
 
-  /* Prediction Box Styling */
-  .prediction-box { background: #fff9c4; padding: 8px; border-radius: 8px; border: 1px solid #fbc02d; overflow: hidden; }
-  .rows-container { display: flex; flex-direction: column; gap: 4px; }
+  /* Prediction Box */
+  .prediction-box { background: #fff9c4; padding: 12px; border-radius: 12px; border: 1px solid #fbc02d; display: flex; flex-direction: column; }
+  .rows-container { display: flex; flex-direction: column; gap: 6px; flex-grow: 1; }
   .row-item { 
-    display: flex; justify-content: space-between; background: rgba(255,255,255,0.5); 
-    padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; cursor: pointer;
+    display: flex; justify-content: space-between; background: rgba(255,255,255,0.7); 
+    padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; border: 1px solid transparent;
   }
+  .row-item:hover { border-color: #fbc02d; background: white; }
   .rank { font-weight: bold; color: #1e3c72; }
-  .formula-line { font-size: 0.6rem; color: #856404; font-style: italic; margin-top: 5px; border-top: 1px solid #fbc02d; padding-top: 3px; }
+  .id { font-family: monospace; }
+  .formula-line { font-size: 0.6rem; color: #856404; font-style: italic; margin-top: 8px; border-top: 1px solid rgba(133, 100, 4, 0.2); padding-top: 5px; }
 
-  /* Device List Styling */
-  .active-devices { overflow: hidden; }
+  /* Active Devices */
+  .active-devices { display: flex; flex-direction: column; }
   .horizontal-scroll { 
-    display: flex; flex-wrap: wrap; gap: 6px; overflow-y: auto; max-height: 80px; padding-top: 5px;
+    display: flex; flex-wrap: wrap; gap: 8px; overflow-y: auto; padding-right: 5px;
   }
   .device-pill { 
-    background: #eef2ff; border: 1px solid #c7d2fe; padding: 4px 10px; 
-    border-radius: 15px; font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+    background: #f0f4ff; border: 1px solid #d1d5db; padding: 6px 12px; 
+    border-radius: 20px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 5px;
+    transition: 0.2s;
   }
+  .device-pill:hover { background: #1e3c72; color: white; }
 
-  /* Mobile adjustment */
-  @media (max-width: 600px) {
-    .bottom-panel { grid-template-columns: 1fr; height: 40vh; overflow-y: auto; }
+  /* Mobile Tweaks */
+  @media (max-width: 650px) {
+    .bottom-panel { grid-template-columns: 1fr; height: 45vh; overflow-y: auto; }
+    #map { flex: 1.5; }
   }
 </style>

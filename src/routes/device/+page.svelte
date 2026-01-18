@@ -3,8 +3,8 @@
   import { createClient } from "@supabase/supabase-js";
 
   const supabase = createClient(
-    "https://nmzhlzkrkacftsbcvyka.supabase.co",
-    "YOUR_PUBLIC_ANON_KEY"
+    "https://uygdeyofmqhfnpyrqtpf.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
   );
 
   let status = "Initializing…";

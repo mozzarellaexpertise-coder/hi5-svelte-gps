@@ -1,0 +1,29 @@
+    <aside class="sidebar">
+      <h3>📊 Active: {activeUsers}</h3>
+
+      <div class="prediction-panel">
+        <strong>🎯 TOP 3 PREDICTIONS</strong>
+        <hr style="border:0; border-top:1px dashed #fbc02d">
+        {#each userList.sort((a,b)=> (b.speed||0)-(a.speed||0)).slice(0,3) as user, i}
+          <div class="pred-row">
+            <span>Row {i+1}: {user.user_id.slice(0,4)}</span>
+            <b>{(Math.abs(user.lat*100)%100).toFixed(0)}%</b>
+          </div>
+        {/each}
+        <div class="formula-note">{formulaNote}</div>
+      </div>
+
+      <div class="user-list">
+        {#each userList as user (user.user_id)}
+          <div class="user-card" on:click={() => focusUser(user)} role="button" tabindex="0" on:keydown={(e) => e.key==='Enter' && focusUser(user)}>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span>{user.status==='STATIONARY'?'⏸️':user.status==='VEHICLE'?'🚗':'📍'}</span>
+              <div>
+                <div style="font-weight:bold; font-size:0.9rem;">{user.user_id.slice(0,8)}</div>
+                <div style="font-size:0.7rem; color:#666;">{user.status} • {user.speed?.toFixed(1)}m/s</div>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </aside>

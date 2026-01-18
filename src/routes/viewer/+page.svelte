@@ -96,36 +96,6 @@
   </header>
 
   <div class="main-content">
-    <aside class="sidebar">
-      <h3>📊 Active: {activeUsers}</h3>
-
-      <div class="prediction-panel">
-        <strong>🎯 TOP 3 PREDICTIONS</strong>
-        <hr style="border:0; border-top:1px dashed #fbc02d">
-        {#each userList.sort((a,b)=> (b.speed||0)-(a.speed||0)).slice(0,3) as user, i}
-          <div class="pred-row">
-            <span>Row {i+1}: {user.user_id.slice(0,4)}</span>
-            <b>{(Math.abs(user.lat*100)%100).toFixed(0)}%</b>
-          </div>
-        {/each}
-        <div class="formula-note">{formulaNote}</div>
-      </div>
-
-      <div class="user-list">
-        {#each userList as user (user.user_id)}
-          <div class="user-card" on:click={() => focusUser(user)} role="button" tabindex="0" on:keydown={(e) => e.key==='Enter' && focusUser(user)}>
-            <div style="display:flex; gap:10px; align-items:center;">
-              <span>{user.status==='STATIONARY'?'⏸️':user.status==='VEHICLE'?'🚗':'📍'}</span>
-              <div>
-                <div style="font-weight:bold; font-size:0.9rem;">{user.user_id.slice(0,8)}</div>
-                <div style="font-size:0.7rem; color:#666;">{user.status} • {user.speed?.toFixed(1)}m/s</div>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </aside>
-
     <div id="map"></div>
   </div>
 </div>
@@ -137,11 +107,5 @@
   .status-dot { width:10px;height:10px;border-radius:50%; background:#ffc107; display:inline-block; margin-right:5px;}
   .connected .status-dot { background:#28a745; box-shadow: 0 0 5px #28a745; }
   .main-content { display:flex; flex:1; overflow:hidden; }
-  .sidebar { width:280px; background:white; border-right:1px solid #ddd; display:flex; flex-direction:column; padding:10px; }
   #map { flex:1; background: #eee; } /* Grey background while loading */
-  .user-card { padding:10px; border:1px solid #eee; margin-bottom:8px; cursor:pointer; border-radius:8px; }
-  .user-card:hover { border-color:#1e3c72; background:#f0f4ff; }
-  .prediction-panel { background:#fff9c4; border:1px solid #fbc02d; padding:10px; border-radius:8px; margin-bottom:15px; font-size:0.85rem; }
-  .pred-row { display:flex; justify-content:space-between; margin:5px 0; }
-  .formula-note { font-size:0.65rem; color:#856404; margin-top:8px; border-top:1px solid #fbc02d; padding-top:5px; font-style:italic; }
 </style>

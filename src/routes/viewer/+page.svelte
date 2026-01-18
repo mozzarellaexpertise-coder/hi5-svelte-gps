@@ -160,11 +160,11 @@
       attributionControl: true
     }).setView([16.8661, 96.1951], 12);
 
-    // Add tile layer with better styling
-    L.tileLayer("[https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"](https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"), {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
-    }).addTo(map);
+// Clean fix for line 164
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
 
     // Load initial data
     connectionStatus = "Loading initial data...";
@@ -269,11 +269,10 @@
                   {:else if user.status === 'VEHICLE'}🚗
                   {:else}📍{/if}
                 </span>
-                <div class="user-info">
-                  <div class="user-id">{user.user_id.slice(0, 8)}...</div>
-                  <div class="user-status">{user.status || 'UNKNOWN'}</div>
-                </div>
-              </div>
+<div class="info-section">
+  <span class="label-text" style="display: block; font-weight: bold;">Device ID</span>
+  <code class="user-id">{user_id.slice(0, 8)}...{user_id.slice(-4)}</code>
+</div>
               <div class="user-details">
                 <small>Speed: {user.speed ? user.speed.toFixed(2) : '0.00'} m/s</small>
                 <small>Updated: {new Date(user.updated_at).toLocaleTimeString()}</small>

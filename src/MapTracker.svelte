@@ -43,9 +43,10 @@
 
     // Initialize Map to absolute full screen
     map = L.map("map", { zoomControl: false }).setView([16.8661, 96.1951], 13);
-    
-    L.tileLayer("https://{s}.tile.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap"
+    // Switch to Voyager for better street visibility
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
+      maxZoom: 19
     }).addTo(map);
 
     // Initial Fetch

@@ -243,10 +243,26 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   <!-- Main Content -->
   <div class="main-content">
     <!-- Sidebar -->
-    <aside class="sidebar">
+
+<aside class="sidebar">
       <div class="sidebar-header">
         <h3>📊 Active Devices</h3>
         <span class="badge">{activeUsers}</span>
+      </div>
+      
+      <div class="prediction-panel">
+        <div style="font-weight: bold; font-size: 0.8rem; margin-bottom: 8px; color: #856404;">
+          🎯 TOP 3 PREDICTIONS
+        </div>
+        {#each userList.sort((a, b) => (b.speed || 0) - (a.speed || 0)).slice(0, 3) as user, i}
+          <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+            <span>Row {i + 1}: ID-{user.user_id.slice(0, 4)}</span>
+            <span style="font-weight: bold;">{(Math.abs(user.lat * 100) % 100).toFixed(0).padStart(2, '0')}%</span>
+          </div>
+        {/each}
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #fbc02d; font-size: 0.7rem; color: #555;">
+          <strong>Note:</strong> Formula: [ΔLocation / Time] + Base_Offset = Pred_Index
+        </div>
       </div>
       
       <div class="user-list">
@@ -257,28 +273,25 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           </div>
         {:else}
           {#each userList as user (user.user_id)}
-            <div class="user-card" on:click={() => focusUser(user)}>
+            <div class="user-card" on:click={() => focusUser(user)} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && focusUser(user)}>
               <div class="user-header">
-                <span class="user-icon" class:stationary={user.status === 'STATIONARY'} 
-                      class:walking={user.status === 'WALKING'}
-                      class:running={user.status === 'RUNNING'}
-                      class:vehicle={user.status === 'VEHICLE'}>
+                <span class="user-icon">
                   {#if user.status === 'STATIONARY'}⏸️
                   {:else if user.status === 'WALKING'}🚶
                   {:else if user.status === 'RUNNING'}🏃
                   {:else if user.status === 'VEHICLE'}🚗
                   {:else}📍{/if}
                 </span>
-<div class="info-section">
-  <span class="label-text" style="display: block; font-weight: bold;">Device ID</span>
-  <code class="user-id">{user_id.slice(0, 8)}...{user_id.slice(-4)}</code>
-</div>
+                <div class="user-info">
+                  <div class="user-id">{user.user_id.slice(0, 8)}...</div>
+                  <div class="user-status">{user.status || 'UNKNOWN'}</div>
+                </div>
+              </div>
               <div class="user-details">
                 <small>Speed: {user.speed ? user.speed.toFixed(2) : '0.00'} m/s</small>
                 <small>Updated: {new Date(user.updated_at).toLocaleTimeString()}</small>
               </div>
-            </div>
-          {/each}
+            </div> {/each}
         {/if}
       </div>
     </aside>

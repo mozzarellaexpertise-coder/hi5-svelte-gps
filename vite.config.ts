@@ -1,15 +1,12 @@
-import adapter from '@sveltejs/adapter-vercel';
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
 
-/** @type {import('@sveltejs/kit').Config} */
-const config = {
-	preprocess: vitePreprocess(),
-
-	kit: {
-		// adapter-auto only works if it's set up perfectly. 
-		// Switching to adapter-vercel is safer for your troops monitor.
-		adapter: adapter()
+export default defineConfig({
+	plugins: [sveltekit()],
+	server: {
+		fs: {
+			// Allows Vite to serve the Leaflet assets correctly
+			allow: ['..']
+		}
 	}
-};
-
-export default config;
+});

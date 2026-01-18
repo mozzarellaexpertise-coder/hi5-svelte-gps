@@ -4,44 +4,62 @@
 
   const supabase = createClient(
     "https://uygdeyofmqhfnpyrqtpf.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
+    "YOUR_PUBLIC_ANON_KEY"
   );
 
   let status = "Initializing...";
   let user_id = "";
-  let watchId;
+  let watchId = null;
   let isTracking = false;
+
   let lastUpdate = null;
-  let currentCoords = { lat: null, lng: null, speed: null };
   let updateCount = 0;
   let errorCount = 0;
 
-  // Generate or retrieve persistent user ID
+  let currentCoords = { lat: null, lng: null, speed: null };
+
+  // === SYSTEM CONTROLS ===
+  let lastUploadTime = 0;
+  let lastCoords = null;
+
+  const BASE_INTERVAL = 5000; // default 5s
+
   function initializeUserId() {
     user_id = localStorage.getItem("user_id") || crypto.randomUUID();
     localStorage.setItem("user_id", user_id);
   }
 
-  // Determine movement status based on speed
-  function getMovementStatus(speed) {
-    if (speed === null || speed < 0.5) return "STATIONARY";
-    if (speed < 2) return "WALKING";
-    if (speed < 10) return "RUNNING";
-    return "VEHICLE";
+  function getMovementStatus(speed = 0) {
+    if (speed < 0.5) return { label: "STATIONARY", interval: 15000 };
+    if (speed < 2) return { label: "WALKING", interval: 7000 };
+    if (speed < 10) return { label: "RUNNING", interval: 4000 };
+    return { label: "VEHICLE", interval: 2000 };
   }
 
-  // Upload location to Supabase
   async function uploadLocation(pos) {
-    const { latitude, longitude, speed, accuracy } = pos.coords;
-    
-    currentCoords = { 
-      lat: latitude.toFixed(6), 
-      lng: longitude.toFixed(6), 
-      speed: speed ? speed.toFixed(2) : 0 
-    };
+    const { latitude, longitude, speed = 0, accuracy = 0 } = pos.coords;
+    const now = Date.now();
 
     const movement = getMovementStatus(speed);
-    status = `📡 Uploading... (${movement})`;
+
+    // ⏱️ Adaptive throttle
+    if (now - lastUploadTime < movement.interval) return;
+    lastUploadTime = now;
+
+    // 📍 Jitter filter
+    if (lastCoords) {
+      const dLat = Math.abs(latitude - lastCoords.lat);
+      const dLng = Math.abs(longitude - lastCoords.lng);
+      if (dLat < 0.00001 && dLng < 0.00001) return;
+    }
+
+    lastCoords = { lat: latitude, lng: longitude };
+
+    currentCoords = {
+      lat: latitude.toFixed(6),
+      lng: longitude.toFixed(6),
+      speed: speed.toFixed(2)
+    };
 
     try {
       const { error } = await supabase.from("locations").upsert(
@@ -49,10 +67,10 @@
           user_id,
           lat: latitude,
           lng: longitude,
-          speed: speed || 0,
-          accuracy: accuracy || 0,
-          status: movement,
-          updated_at: new Date().toISOString(),
+          speed,
+          accuracy,
+          status: movement.label,
+          updated_at: new Date().toISOString()
         },
         { onConflict: "user_id" }
       );
@@ -61,58 +79,35 @@
 
       updateCount++;
       lastUpdate = new Date();
-      status = `✅ Active (${movement}) • ${updateCount} updates`;
+      status = `✅ Active (${movement.label}) • ${updateCount}`;
     } catch (err) {
       errorCount++;
-      status = `⚠️ Upload failed (${errorCount} errors)`;
-      console.error("Supabase error:", err);
+      status = `⚠️ Network issue (${errorCount})`;
+      console.error(err);
     }
   }
 
-  // Manual update trigger
-  async function sendManualUpdate() {
-    if (!navigator.geolocation) {
-      status = "❌ GPS not supported";
-      return;
-    }
-
-    status = "🛰️ Getting position...";
-    navigator.geolocation.getCurrentPosition(
-      (pos) => uploadLocation(pos),
-      (err) => {
-        status = `❌ GPS Error: ${err.message}`;
-        console.error(err);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }
-
-  // Start continuous tracking
   function startTracking() {
-    if (!navigator.geolocation) {
-      status = "❌ Geolocation not supported in this browser";
-      return;
-    }
+    if (!navigator.geolocation || watchId) return;
 
     isTracking = true;
-    status = "🔄 Starting GPS tracking...";
+    status = "📍 Tracking active";
 
     watchId = navigator.geolocation.watchPosition(
-      (pos) => uploadLocation(pos),
+      uploadLocation,
       (err) => {
         errorCount++;
-        status = `❌ GPS Error: ${err.message}`;
-        console.error("Geolocation error:", err);
+        status = `❌ GPS Error`;
+        console.error(err);
       },
       {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000,
+        enableHighAccuracy: false,
+        maximumAge: 3000,
+        timeout: 15000
       }
     );
   }
 
-  // Stop tracking
   function stopTracking() {
     if (watchId) {
       navigator.geolocation.clearWatch(watchId);
@@ -120,6 +115,11 @@
     }
     isTracking = false;
     status = "⏸️ Tracking paused";
+  }
+
+  async function sendManualUpdate() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(uploadLocation);
   }
 
   onMount(() => {

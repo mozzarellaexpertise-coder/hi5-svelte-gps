@@ -20,11 +20,10 @@
       markers[user_id].setLatLng([lat, lng]);
     } else {
       markers[user_id] = L.marker([lat, lng])
-        .bindPopup(`User: ${user_id.slice(0, 5)}`)
+        .bindPopup(`<b>User ID:</b><br/>${user_id.slice(0, 13)}...`)
         .addTo(map);
     }
 
-    // Auto-zoom to the first active device found
     if (!hasCentered) {
       map.setView([lat, lng], 15);
       hasCentered = true;
@@ -35,7 +34,6 @@
     const L = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
 
-    // Standard Leaflet Icon Fix
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -43,15 +41,15 @@
       shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
 
-    // Initialize Map - Default to Yangon if no data
+    // Init Map to fill the container
     map = L.map("map").setView([16.8661, 96.1951], 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19
+    }).addTo(map);
 
-    // 1️⃣ Get initial data
     const { data } = await supabase.from("locations").select("*");
     if (data) data.forEach(u => updateMarker(u, L));
 
-    // 2️⃣ Live Sync
     channel = supabase
       .channel("live-locations")
       .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, 
@@ -65,73 +63,99 @@
   });
 </script>
 
-<div class="app-container">
-  <div class="header">
-    <h1>🌍 APK-PARADISE LIVE</h1>
-    <div class="badge">Index 5.2</div>
-  </div>
+<div class="dashboard">
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>APK-PARADISE</h1>
+      <span class="version">V 5.2</span>
+    </div>
 
-  <div id="map"></div>
+    <div class="prediction-panel">
+      <h2>Top Predictions</h2>
+      <div class="pred-card high">
+        <span class="rank">#1</span>
+        <span class="num">24</span>
+      </div>
+      <div class="pred-card">
+        <span class="rank">#2</span>
+        <span class="num">81</span>
+      </div>
+      <div class="pred-card">
+        <span class="rank">#3</span>
+        <span class="num">07</span>
+      </div>
+    </div>
 
-  <div class="prediction-footer">
-    <div class="box"><span>#1</span><strong>24</strong></div>
-    <div class="box"><span>#2</span><strong>81</strong></div>
-    <div class="box"><span>#3</span><strong>07</strong></div>
-  </div>
+    <div class="status-box">
+        <p>● Live Data Stream</p>
+        <p>Vercel + Supabase Active</p>
+    </div>
+  </aside>
+
+  <main id="map-container">
+    <div id="map"></div>
+  </main>
 </div>
 
 <style>
-  :global(body, html) { margin: 0; padding: 0; height: 100%; overflow: hidden; }
-  
-  .app-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
+  /* RESET & FULL HEIGHT */
+  :global(body, html) { 
+    margin: 0; 
+    padding: 0; 
+    height: 100vh; 
     width: 100vw;
-    background: #f0f0f0;
+    overflow: hidden; 
+    font-family: 'Inter', sans-serif;
   }
 
-  .header {
-    background: #111;
+  .dashboard {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* SIDEBAR FOR DESKTOP */
+  .sidebar {
+    width: 300px;
+    background: #121212;
     color: white;
-    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    border-right: 2px solid #ff4081;
+    z-index: 10;
+  }
+
+  .brand h1 { font-size: 1.4rem; margin: 0; color: #ff4081; }
+  .version { font-size: 0.7rem; opacity: 0.6; }
+
+  .prediction-panel { margin-top: 40px; flex-grow: 1; }
+  .prediction-panel h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; opacity: 0.8; }
+
+  .pred-card {
+    background: #1e1e1e;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 10px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border: 1px solid #333;
   }
+  .pred-card.high { border-color: #ff4081; background: #251018; }
+  .rank { color: #ff4081; font-weight: bold; }
+  .num { font-size: 1.8rem; font-weight: 800; }
 
-  h1 { font-size: 1rem; margin: 0; letter-spacing: 1px; }
+  .status-box { font-size: 0.75rem; color: #4caf50; border-top: 1px solid #333; padding-top: 10px; }
 
-  .badge {
-    background: #ff4081;
-    font-size: 0.7rem;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: bold;
+  /* FULL WIDTH MAP */
+  #map-container {
+    flex-grow: 1;
+    position: relative;
   }
 
   #map {
-    flex-grow: 1; /* This makes the map fill the middle space */
+    height: 100%;
     width: 100%;
   }
-
-  .prediction-footer {
-    display: flex;
-    background: white;
-    padding: 15px;
-    gap: 10px;
-    border-top: 2px solid #ff4081;
-  }
-
-  .box {
-    flex: 1;
-    text-align: center;
-    background: #f8f8f8;
-    padding: 5px;
-    border-radius: 8px;
-    border: 1px solid #ddd;
-  }
-
-  .box span { display: block; font-size: 0.6rem; color: #ff4081; font-weight: bold; }
-  .box strong { font-size: 1.2rem; color: #333; }
 </style>

@@ -443,6 +443,100 @@
     color: #6c757d;
   }
 
-  .empty-state p {
-    margin: 0 0 5px;
-    font-weight: 600;
+.user-card {
+    background: white;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .user-card:hover {
+    border-color: #2a5298;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transform: translateY(-2px);
+  }
+
+  .user-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .user-icon {
+    font-size: 1.2rem;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f0f2f5;
+    border-radius: 8px;
+  }
+
+  .user-info .user-id {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #333;
+  }
+
+  .user-info .user-status {
+    font-size: 0.75rem;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .user-details {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #f0f0f0;
+    padding-top: 8px;
+    color: #6c757d;
+  }
+
+  /* Map Container */
+  #map {
+    flex: 1;
+    z-index: 1;
+  }
+
+  /* Footer Stats */
+  .footer {
+    display: flex;
+    background: white;
+    padding: 15px 20px;
+    gap: 20px;
+    border-top: 1px solid #e0e0e0;
+    justify-content: center;
+  }
+
+  .stat-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e3c72;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+  }
+
+  /* Prediction Box Styling */
+  .prediction-panel {
+    background: #fff9c4;
+    border: 1px solid #fbc02d;
+    padding: 12px;
+    margin: 10px;
+    border-radius: 8px;
+  }
+</style>

@@ -7,80 +7,449 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
   );
 
-  let status = "Waiting for GPS permission...";
+  let status = "Initializing...";
   let user_id = "";
   let watchId;
+  let isTracking = false;
+  let lastUpdate = null;
+  let currentCoords = { lat: null, lng: null, speed: null };
+  let updateCount = 0;
+  let errorCount = 0;
 
-  // Function to send data manually for testing
-  async function sendManualUpdate() {
-    status = "🛰️ Requesting coordinates...";
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      await uploadLocation(pos);
-    }, (err) => {
-      status = `❌ GPS Error: ${err.message}`;
-    });
+  // Generate or retrieve persistent user ID
+  function initializeUserId() {
+    user_id = localStorage.getItem("user_id") || crypto.randomUUID();
+    localStorage.setItem("user_id", user_id);
   }
 
-  async function uploadLocation(pos) {
-    const { latitude, longitude, speed } = pos.coords;
-    const movement = speed < 0.5 ? "STATIONARY" : speed < 2 ? "WALKING" : "MOVING";
-    
-    status = `📡 Sending (${movement})...`;
-    
-    const { error } = await supabase.from("locations").upsert({
-      user_id,
-      lat: latitude,
-      lng: longitude,
-      speed: speed || 0,
-      status: movement,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id' });
+  // Determine movement status based on speed
+  function getMovementStatus(speed) {
+    if (speed === null || speed < 0.5) return "STATIONARY";
+    if (speed < 2) return "WALKING";
+    if (speed < 10) return "RUNNING";
+    return "VEHICLE";
+  }
 
-    if (error) {
-      status = "⚠️ Supabase Error: " + error.message;
-      console.error(error);
-    } else {
-      status = `✅ Last sent: ${new Date().toLocaleTimeString()}`;
+  // Upload location to Supabase
+  async function uploadLocation(pos) {
+    const { latitude, longitude, speed, accuracy } = pos.coords;
+    
+    currentCoords = { 
+      lat: latitude.toFixed(6), 
+      lng: longitude.toFixed(6), 
+      speed: speed ? speed.toFixed(2) : 0 
+    };
+
+    const movement = getMovementStatus(speed);
+    status = `📡 Uploading... (${movement})`;
+
+    try {
+      const { error } = await supabase.from("locations").upsert(
+        {
+          user_id,
+          lat: latitude,
+          lng: longitude,
+          speed: speed || 0,
+          accuracy: accuracy || 0,
+          status: movement,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+
+      if (error) throw error;
+
+      updateCount++;
+      lastUpdate = new Date();
+      status = `✅ Active (${movement}) • ${updateCount} updates`;
+    } catch (err) {
+      errorCount++;
+      status = `⚠️ Upload failed (${errorCount} errors)`;
+      console.error("Supabase error:", err);
     }
   }
 
-  onMount(() => {
-    // Browser check
-    user_id = localStorage.getItem("user_id") || crypto.randomUUID();
-    localStorage.setItem("user_id", user_id);
-
+  // Manual update trigger
+  async function sendManualUpdate() {
     if (!navigator.geolocation) {
-      status = "❌ Geolocation not supported";
+      status = "❌ GPS not supported";
       return;
     }
 
+    status = "🛰️ Getting position...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => uploadLocation(pos),
+      (err) => {
+        status = `❌ GPS Error: ${err.message}`;
+        console.error(err);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
+  // Start continuous tracking
+  function startTracking() {
+    if (!navigator.geolocation) {
+      status = "❌ Geolocation not supported in this browser";
+      return;
+    }
+
+    isTracking = true;
+    status = "🔄 Starting GPS tracking...";
+
     watchId = navigator.geolocation.watchPosition(
       (pos) => uploadLocation(pos),
-      (err) => { status = "❌ GPS: " + err.message; },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      (err) => {
+        errorCount++;
+        status = `❌ GPS Error: ${err.message}`;
+        console.error("Geolocation error:", err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
+      }
     );
+  }
+
+  // Stop tracking
+  function stopTracking() {
+    if (watchId) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    isTracking = false;
+    status = "⏸️ Tracking paused";
+  }
+
+  onMount(() => {
+    initializeUserId();
+    startTracking();
   });
 
   onDestroy(() => {
-    if (typeof navigator !== 'undefined' && watchId) navigator.geolocation.clearWatch(watchId);
+    stopTracking();
   });
 </script>
 
-<div class="device">
-  <h2>📱 Live Device Sender</h2>
-  <div class="card">
-    <p><strong>My ID:</strong><br /><small>{user_id}</small></p>
-    <p class="status" class:error={status.includes('❌')}>{status}</p>
-    <button on:click={sendManualUpdate}>Force Update Now</button>
+<div class="sender-container">
+  <div class="header">
+    <h1>📱 Live Tracker</h1>
+    <p class="subtitle">Real-time location broadcasting</p>
   </div>
-  <p class="hint">Leave this screen active while walking.</p>
+
+  <div class="main-card">
+    <!-- Status Indicator -->
+    <div class="status-badge" class:active={isTracking} class:error={status.includes('❌')}>
+      <span class="pulse" class:active={isTracking}></span>
+      {status}
+    </div>
+
+    <!-- User Info -->
+    <div class="info-section">
+      <label>Device ID</label>
+      <code class="user-id">{user_id.slice(0, 8)}...{user_id.slice(-4)}</code>
+    </div>
+
+    <!-- Coordinates Display -->
+    {#if currentCoords.lat}
+      <div class="coords-grid">
+        <div class="coord-item">
+          <span class="label">Latitude</span>
+          <span class="value">{currentCoords.lat}°</span>
+        </div>
+        <div class="coord-item">
+          <span class="label">Longitude</span>
+          <span class="value">{currentCoords.lng}°</span>
+        </div>
+        <div class="coord-item">
+          <span class="label">Speed</span>
+          <span class="value">{currentCoords.speed} m/s</span>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-value">{updateCount}</div>
+        <div class="stat-label">Updates Sent</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">{errorCount}</div>
+        <div class="stat-label">Errors</div>
+      </div>
+      {#if lastUpdate}
+        <div class="stat-box">
+          <div class="stat-value">{lastUpdate.toLocaleTimeString()}</div>
+          <div class="stat-label">Last Update</div>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      {#if isTracking}
+        <button class="btn btn-stop" on:click={stopTracking}>
+          ⏸️ Pause Tracking
+        </button>
+      {:else}
+        <button class="btn btn-start" on:click={startTracking}>
+          ▶️ Start Tracking
+        </button>
+      {/if}
+      <button class="btn btn-manual" on:click={sendManualUpdate}>
+        🔄 Force Update
+      </button>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    💡 Keep this page active for continuous tracking. GPS works best outdoors.
+  </div>
 </div>
 
 <style>
-  .device { padding: 2rem; text-align: center; font-family: sans-serif; }
-  .card { background: #f9f9f9; padding: 20px; border-radius: 12px; border: 1px solid #ddd; }
-  .status { font-weight: bold; color: #2c3e50; margin: 20px 0; }
-  .error { color: #e74c3c; }
-  button { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
-  .hint { opacity: 0.6; font-size: 0.8rem; margin-top: 20px; }
+  :global(body) {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+  }
+
+  .sender-container {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    text-align: center;
+    color: white;
+    margin-bottom: 20px;
+  }
+
+  .header h1 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+  }
+
+  .subtitle {
+    margin: 5px 0 0;
+    opacity: 0.9;
+    font-size: 0.9rem;
+  }
+
+  .main-card {
+    background: white;
+    border-radius: 20px;
+    padding: 25px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    flex-grow: 1;
+  }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px 20px;
+    border-radius: 12px;
+    background: #f8f9fa;
+    font-weight: 600;
+    margin-bottom: 20px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+  }
+
+  .status-badge.active {
+    background: #d4edda;
+    border-color: #28a745;
+    color: #155724;
+  }
+
+  .status-badge.error {
+    background: #f8d7da;
+    border-color: #dc3545;
+    color: #721c24;
+  }
+
+  .pulse {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #6c757d;
+  }
+
+  .pulse.active {
+    background: #28a745;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .info-section {
+    margin: 20px 0;
+  }
+
+  .info-section label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    margin-bottom: 5px;
+    font-weight: 600;
+  }
+
+  .user-id {
+    display: block;
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #495057;
+    word-break: break-all;
+  }
+
+  .coords-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin: 20px 0;
+  }
+
+  .coord-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+  }
+
+  .coord-item:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .coord-item .label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    margin-bottom: 5px;
+    font-weight: 600;
+  }
+
+  .coord-item .value {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #212529;
+    font-family: 'Courier New', monospace;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    margin: 20px 0;
+  }
+
+  .stat-box {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 5px;
+  }
+
+  .stat-label {
+    font-size: 0.7rem;
+    opacity: 0.9;
+    text-transform: uppercase;
+  }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .btn-start {
+    background: #28a745;
+    color: white;
+  }
+
+  .btn-start:hover {
+    background: #218838;
+    transform: translateY(-2px);
+  }
+
+  .btn-stop {
+    background: #ffc107;
+    color: #212529;
+  }
+
+  .btn-stop:hover {
+    background: #e0a800;
+    transform: translateY(-2px);
+  }
+
+  .btn-manual {
+    background: #007bff;
+    color: white;
+  }
+
+  .btn-manual:hover {
+    background: #0056b3;
+    transform: translateY(-2px);
+  }
+
+  .footer-note {
+    text-align: center;
+    color: white;
+    margin-top: 20px;
+    font-size: 0.85rem;
+    opacity: 0.9;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+  }
+
+  @media (max-width: 480px) {
+    .sender-container {
+      padding: 15px;
+    }
+
+    .coords-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .coord-item:last-child {
+      grid-column: 1;
+    }
+  }
 </style>

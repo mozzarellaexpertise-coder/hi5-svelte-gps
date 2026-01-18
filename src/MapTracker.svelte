@@ -57,10 +57,54 @@
 </div>
 
 <style>
-  :global(body, html) { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
-  .dashboard { display: flex; height: 100vh; width: 100vw; }
-  .sidebar { width: 250px; background: #111; color: #ff4081; padding: 20px; border-right: 2px solid #ff4081; }
-  .prediction { background: #222; padding: 15px; margin: 10px 0; border-radius: 8px; color: white; border: 1px solid #333; }
-  #map { flex-grow: 1; height: 100%; }
-  .status { font-size: 0.7rem; color: #4caf50; margin-top: 20px; }
+:global(body, html) {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.dashboard {
+  display: flex;
+  flex-direction: row;  /* sidebar left, map right */
+  height: 100%;
+  width: 100%;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  width: 250px;
+  min-width: 200px;
+  max-width: 300px;
+  background: #111;
+  color: #ff4081;
+  padding: 20px;
+  border-right: 2px solid #ff4081;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.prediction {
+  background: #222;
+  padding: 15px;
+  margin: 10px 0;
+  border-radius: 8px;
+  color: white;
+  border: 1px solid #333;
+}
+
+.status {
+  font-size: 0.75rem;
+  color: #4caf50;
+  margin-top: auto;  /* pushes to bottom */
+}
+
+#map {
+  flex-grow: 1;
+  height: 100%;
+  width: 100%;
+}
+
 </style>

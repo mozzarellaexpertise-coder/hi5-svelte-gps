@@ -67,10 +67,12 @@
     const popupContent = `
       <div style="font-family:sans-serif; min-width:200px;">
         <h4>📍 Device ${user_id.slice(0,8)}</h4>
-        <div><strong>Status:</strong> ${status || "UNKNOWN"}<br/>
-        <strong>Speed:</strong> ${speed?.toFixed(2) || "0.00"} m/s<br/>
-        <strong>Coordinates:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br/>
-        <strong>Last Update:</strong> ${new Date(updated_at).toLocaleString()}</div>
+        <div>
+          <strong>Status:</strong> ${status || "UNKNOWN"}<br/>
+          <strong>Speed:</strong> ${speed?.toFixed(2) || "0.00"} m/s<br/>
+          <strong>Coordinates:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br/>
+          <strong>Last Update:</strong> ${new Date(updated_at).toLocaleString()}
+        </div>
       </div>
     `;
 
@@ -204,7 +206,7 @@
   .status-dot { width:10px;height:10px;border-radius:50%; background:#ffc107; }
   .status-indicator.connected .status-dot { background:#28a745; animation:pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.5} }
-  .main-content { display:flex; flex:1; overflow:hidden; }
+  .main-content { display:flex; flex:1; overflow:hidden; height: calc(100vh - 70px); }
   .sidebar { width:300px; background:white; border-right:1px solid #ccc; display:flex; flex-direction:column; overflow:auto; padding:10px; }
   #map { flex:1; height:100%; }
   .user-card { padding:8px; border:1px solid #eee; margin-bottom:5px; cursor:pointer; border-radius:6px; transition:0.2s; }

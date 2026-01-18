@@ -7,106 +7,80 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
   );
 
-  let status = "Initializing…";
-  let lastSent = 0;
+  let status = "Waiting for GPS permission...";
+  let user_id = "";
   let watchId;
 
-  // Persistent device/user id
-  let user_id =
-    localStorage.getItem("user_id") ||
-    crypto.randomUUID();
+  // Function to send data manually for testing
+  async function sendManualUpdate() {
+    status = "🛰️ Requesting coordinates...";
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      await uploadLocation(pos);
+    }, (err) => {
+      status = `❌ GPS Error: ${err.message}`;
+    });
+  }
 
-  localStorage.setItem("user_id", user_id);
+  async function uploadLocation(pos) {
+    const { latitude, longitude, speed } = pos.coords;
+    const movement = speed < 0.5 ? "STATIONARY" : speed < 2 ? "WALKING" : "MOVING";
+    
+    status = `📡 Sending (${movement})...`;
+    
+    const { error } = await supabase.from("locations").upsert({
+      user_id,
+      lat: latitude,
+      lng: longitude,
+      speed: speed || 0,
+      status: movement,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' });
 
-  const SEND_INTERVAL = 3000; // ms (3 seconds)
+    if (error) {
+      status = "⚠️ Supabase Error: " + error.message;
+      console.error(error);
+    } else {
+      status = `✅ Last sent: ${new Date().toLocaleTimeString()}`;
+    }
+  }
 
   onMount(() => {
+    // Browser check
+    user_id = localStorage.getItem("user_id") || crypto.randomUUID();
+    localStorage.setItem("user_id", user_id);
+
     if (!navigator.geolocation) {
       status = "❌ Geolocation not supported";
       return;
     }
 
     watchId = navigator.geolocation.watchPosition(
-      async pos => {
-        const now = Date.now();
-        if (now - lastSent < SEND_INTERVAL) return;
-
-        lastSent = now;
-
-        const { latitude, longitude, speed } = pos.coords;
-
-        const movement =
-          speed < 0.5 ? "STATIONARY" :
-          speed < 2 ? "WALKING" :
-          "MOVING";
-
-        status = `📡 Sending (${movement})`;
-
-        const { error } = await supabase
-          .from("locations")
-          .upsert({
-            user_id,
-            lat: latitude,
-            lng: longitude,
-            speed,
-            status: movement,
-            updated_at: new Date()
-          });
-
-        if (error) {
-          console.error(error);
-          status = "⚠️ Send failed";
-        }
-      },
-      err => {
-        console.error(err);
-        status = "❌ GPS error";
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 1000
-      }
+      (pos) => uploadLocation(pos),
+      (err) => { status = "❌ GPS: " + err.message; },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
   });
 
   onDestroy(() => {
-    if (watchId) navigator.geolocation.clearWatch(watchId);
+    if (typeof navigator !== 'undefined' && watchId) navigator.geolocation.clearWatch(watchId);
   });
 </script>
 
 <div class="device">
   <h2>📱 Live Device Sender</h2>
-
-  <p><strong>User ID:</strong><br />{user_id}</p>
-  <p class="status">{status}</p>
-
-  <p class="hint">
-    Keep this page open.<br />
-    Your movement appears on the viewer map.
-  </p>
+  <div class="card">
+    <p><strong>My ID:</strong><br /><small>{user_id}</small></p>
+    <p class="status" class:error={status.includes('❌')}>{status}</p>
+    <button on:click={sendManualUpdate}>Force Update Now</button>
+  </div>
+  <p class="hint">Leave this screen active while walking.</p>
 </div>
 
 <style>
-  .device {
-    padding: 1.5rem;
-    max-width: 420px;
-    margin: auto;
-    font-family: system-ui, sans-serif;
-    text-align: center;
-  }
-
-  h2 {
-    margin-bottom: 1rem;
-  }
-
-  .status {
-    margin-top: 1rem;
-    font-size: 1.1rem;
-  }
-
-  .hint {
-    margin-top: 2rem;
-    opacity: 0.7;
-    font-size: 0.9rem;
-  }
+  .device { padding: 2rem; text-align: center; font-family: sans-serif; }
+  .card { background: #f9f9f9; padding: 20px; border-radius: 12px; border: 1px solid #ddd; }
+  .status { font-weight: bold; color: #2c3e50; margin: 20px 0; }
+  .error { color: #e74c3c; }
+  button { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+  .hint { opacity: 0.6; font-size: 0.8rem; margin-top: 20px; }
 </style>

@@ -11,7 +11,7 @@
   let map;
   let L;
   let channel;
-  let connectionStatus = "Connecting...";
+  let connectionStatus = "Connecting…";
 
   const markers = {};
   const trails = {};
@@ -21,11 +21,11 @@
   const REMOVE_MS = 60_000;
   const MAX_TRAIL = 20;
 
-  // 🔑 URL params
-  let targetUserId = null;
+  // 🧭 HANDLE
+  let handleInput = "";
   let targetHandle = null;
 
-  // 🧭 Auto-follow
+  // 🧭 AUTO FOLLOW
   let autoFollow = true;
   let lastCenter = null;
   const FOLLOW_DISTANCE_M = 10;
@@ -71,48 +71,46 @@
   }
 
   function updateTrail(user) {
-    const { user_id, lat, lng, status } = user;
-    if (!trails[user_id]) {
-      trails[user_id] = L.polyline([], {
+    const { handle, lat, lng, status } = user;
+    if (!trails[handle]) {
+      trails[handle] = L.polyline([], {
         color: statusColor(status),
         weight: 3,
         opacity: 0.7
       }).addTo(map);
     }
 
-    const latlngs = trails[user_id].getLatLngs();
+    const latlngs = trails[handle].getLatLngs();
     latlngs.push([lat, lng]);
     if (latlngs.length > MAX_TRAIL) latlngs.shift();
-    trails[user_id].setLatLngs(latlngs);
+    trails[handle].setLatLngs(latlngs);
   }
 
   function updateMarker(user) {
-    const { user_id, lat, lng, status, speed, handle } = user;
-    if (!lat || !lng) return;
+    const { handle, lat, lng, status, speed } = user;
+    if (!lat || !lng || !handle) return;
 
-    lastSeen[user_id] = Date.now();
-
-    const name = handle || targetHandle || user_id.slice(0, 8);
+    lastSeen[handle] = Date.now();
 
     const popup = `
-      <b>${name}</b><br>
+      <b>${handle}</b><br>
       ${status}<br>
       ${speed?.toFixed(2) ?? "0.00"} m/s
     `;
 
-    if (markers[user_id]) {
-      markers[user_id].setLatLng([lat, lng]);
-      markers[user_id].setIcon(markerIcon(status));
+    if (markers[handle]) {
+      markers[handle].setLatLng([lat, lng]);
+      markers[handle].setIcon(markerIcon(status));
     } else {
-      markers[user_id] = L.marker([lat, lng], {
+      markers[handle] = L.marker([lat, lng], {
         icon: markerIcon(status)
       }).bindPopup(popup).addTo(map);
     }
 
     updateTrail(user);
 
-    // 🧭 Auto-follow (single user only)
-    if (targetUserId && autoFollow) {
+    // 🧭 AUTO FOLLOW
+    if (autoFollow) {
       if (!lastCenter) {
         map.setView([lat, lng], 16);
         lastCenter = { lat, lng };
@@ -128,24 +126,29 @@
 
   function cleanupStale() {
     const now = Date.now();
-    Object.keys(markers).forEach((id) => {
-      const age = now - (lastSeen[id] || 0);
+    Object.keys(markers).forEach((h) => {
+      const age = now - (lastSeen[h] || 0);
       if (age > REMOVE_MS) {
-        map.removeLayer(markers[id]);
-        map.removeLayer(trails[id]);
-        delete markers[id];
-        delete trails[id];
-        delete lastSeen[id];
+        map.removeLayer(markers[h]);
+        map.removeLayer(trails[h]);
+        delete markers[h];
+        delete trails[h];
+        delete lastSeen[h];
       }
     });
+  }
+
+  function jumpToHandle() {
+    if (!handleInput) return;
+    window.location.href = `/viewer?handle=${handleInput}`;
   }
 
   onMount(async () => {
     if (!browser) return;
 
     const params = new URLSearchParams(window.location.search);
-    targetUserId = params.get("user_id");
     targetHandle = params.get("handle");
+    handleInput = targetHandle ?? "";
 
     const Leaflet = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
@@ -156,22 +159,25 @@
 
     map.on("dragstart zoomstart", () => autoFollow = false);
 
-    let query = supabase.from("locations").select("*");
-    query = targetUserId
-      ? query.eq("user_id", targetUserId)
-      : query.eq("share_mode", "PUBLIC");
+    if (targetHandle) {
+      const { data } = await supabase
+        .from("locations")
+        .select("*")
+        .eq("handle", targetHandle)
+        .limit(1);
 
-    const { data } = await query;
-    data?.forEach(updateMarker);
+      data?.forEach(updateMarker);
+    }
 
     channel = supabase.channel("live-locations")
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "locations" },
-        (p) => p.new && (
-          targetUserId
-            ? p.new.user_id === targetUserId
-            : p.new.share_mode === "PUBLIC"
-        ) && updateMarker(p.new)
+        (p) => {
+          if (!p.new || !p.new.handle) return;
+          if (targetHandle && p.new.handle !== targetHandle) return;
+          updateMarker(p.new);
+        }
       )
       .subscribe();
 
@@ -188,14 +194,16 @@
 <div class="viewer">
   <header>
     <h1>🌍 Live Tracker</h1>
+    <input
+      placeholder="Enter handle…"
+      bind:value={handleInput}
+      on:keydown={(e) => e.key === "Enter" && jumpToHandle()}
+    />
+    <button on:click={jumpToHandle}>Go</button>
     <span>{connectionStatus}</span>
   </header>
 
-  <button
-    class:active={autoFollow}
-    class="follow"
-    on:click={() => autoFollow = !autoFollow}
-  >
+  <button class="follow" class:active={autoFollow} on:click={() => autoFollow = !autoFollow}>
     🧭 {autoFollow ? "Following" : "Free Pan"}
   </button>
 
@@ -206,45 +214,50 @@
   :global(html, body) {
     margin: 0;
     height: 100%;
-    overflow: hidden;
-    font-family: system-ui, sans-serif;
   }
 
   .viewer {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: #111;
   }
 
   header {
     background: #1e3c72;
     color: white;
-    padding: 10px 16px;
+    padding: 10px;
     display: flex;
-    justify-content: space-between;
+    gap: 8px;
     align-items: center;
-    z-index: 1000;
+  }
+
+  header input {
+    padding: 6px;
+    border-radius: 4px;
+    border: none;
+  }
+
+  header button {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
   }
 
   #map {
     flex: 1;
-    width: 100%;
-    background: #222;
   }
 
   .follow {
     position: absolute;
-    top: 64px;
+    top: 70px;
     right: 12px;
-    z-index: 1200;
+    z-index: 1000;
     padding: 8px 14px;
     border-radius: 20px;
     border: none;
     background: #343a40;
     color: white;
-    font-size: 13px;
-    cursor: pointer;
   }
 
   .follow.active {

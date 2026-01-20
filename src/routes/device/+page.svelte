@@ -62,19 +62,19 @@
     };
 
     try {
-      const { error } = await supabase.from("locations").upsert(
-        {
-          user_id,
-          lat: latitude,
-          lng: longitude,
-          speed,
-          accuracy,
-          status: movement.label,
-          updated_at: new Date().toISOString()
-        },
-        { onConflict: "user_id" }
-      );
-
+// Inside uploadLocation function
+const { error } = await supabase.from("locations").upsert(
+  {
+    user_id: user_id, // Match text
+    lat: latitude,    // Match double precision
+    lng: longitude,   // Match double precision
+    speed: speed,     // Match double precision
+    accuracy: accuracy,
+    status: movement.label,
+    updated_at: new Date().toISOString()
+  },
+  { onConflict: "user_id" } // Use the unique constraint
+);
       if (error) throw error;
 
       updateCount++;

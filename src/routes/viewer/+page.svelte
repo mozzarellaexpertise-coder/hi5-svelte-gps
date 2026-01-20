@@ -11,16 +11,36 @@
   let map;
   let L;
   let channel;
-  let hasCentered = false;
   let connectionStatus = "Connecting...";
 
   const markers = {};
   const trails = {};
   const lastSeen = {};
 
-  const STALE_MS = 30_000;     // fade start
-  const REMOVE_MS = 60_000;    // remove completely
+  const STALE_MS = 30_000;
+  const REMOVE_MS = 60_000;
   const MAX_TRAIL = 20;
+
+  // 🔑 URL params
+  let targetUserId = null;
+  let targetHandle = null;
+
+  // 🧭 Auto-follow
+  let autoFollow = true;
+  let lastCenter = null;
+  const FOLLOW_DISTANCE_M = 10;
+
+  function metersBetween(a, b) {
+    const R = 6371000;
+    const dLat = (b.lat - a.lat) * Math.PI / 180;
+    const dLng = (b.lng - a.lng) * Math.PI / 180;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(a.lat * Math.PI / 180) *
+        Math.cos(b.lat * Math.PI / 180) *
+        Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
 
   function statusColor(status) {
     return {
@@ -64,52 +84,58 @@
     latlngs.push([lat, lng]);
     if (latlngs.length > MAX_TRAIL) latlngs.shift();
     trails[user_id].setLatLngs(latlngs);
-    trails[user_id].setStyle({ color: statusColor(status) });
   }
 
   function updateMarker(user) {
-    const { user_id, lat, lng, status, speed } = user;
-    if (!lat || !lng || !map || !L) return;
+    const { user_id, lat, lng, status, speed, handle } = user;
+    if (!lat || !lng) return;
 
     lastSeen[user_id] = Date.now();
 
+    const name = handle || targetHandle || user_id.slice(0, 8);
+
     const popup = `
-      <b>${user_id.slice(0, 8)}</b><br>
+      <b>${name}</b><br>
       ${status}<br>
-      ${speed?.toFixed(2)} m/s
+      ${speed?.toFixed(2) ?? "0.00"} m/s
     `;
 
     if (markers[user_id]) {
       markers[user_id].setLatLng([lat, lng]);
-      markers[user_id].setIcon(markerIcon(status, 1));
+      markers[user_id].setIcon(markerIcon(status));
     } else {
       markers[user_id] = L.marker([lat, lng], {
-        icon: markerIcon(status, 1)
+        icon: markerIcon(status)
       }).bindPopup(popup).addTo(map);
     }
 
     updateTrail(user);
 
-    if (!hasCentered) {
-      map.setView([lat, lng], 15);
-      hasCentered = true;
+    // 🧭 Auto-follow (single user only)
+    if (targetUserId && autoFollow) {
+      if (!lastCenter) {
+        map.setView([lat, lng], 16);
+        lastCenter = { lat, lng };
+      } else {
+        const d = metersBetween(lastCenter, { lat, lng });
+        if (d > FOLLOW_DISTANCE_M) {
+          map.panTo([lat, lng], { animate: true });
+          lastCenter = { lat, lng };
+        }
+      }
     }
   }
 
   function cleanupStale() {
     const now = Date.now();
-
     Object.keys(markers).forEach((id) => {
       const age = now - (lastSeen[id] || 0);
-
       if (age > REMOVE_MS) {
         map.removeLayer(markers[id]);
         map.removeLayer(trails[id]);
         delete markers[id];
         delete trails[id];
         delete lastSeen[id];
-      } else if (age > STALE_MS) {
-        markers[id].setIcon(markerIcon("STATIONARY", 0.3));
       }
     });
   }
@@ -117,37 +143,40 @@
   onMount(async () => {
     if (!browser) return;
 
+    const params = new URLSearchParams(window.location.search);
+    targetUserId = params.get("user_id");
+    targetHandle = params.get("handle");
+
     const Leaflet = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
     L = Leaflet.default || Leaflet;
 
-    map = L.map("map", { zoomControl: false })
-      .setView([16.8661, 96.1951], 12);
+    map = L.map("map").setView([16.8661, 96.1951], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-    L.control.zoom({ position: "topright" }).addTo(map);
+    map.on("dragstart zoomstart", () => autoFollow = false);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap",
-      maxZoom: 19
-    }).addTo(map);
+    let query = supabase.from("locations").select("*");
+    query = targetUserId
+      ? query.eq("user_id", targetUserId)
+      : query.eq("share_mode", "PUBLIC");
 
-    const { data } = await supabase
-      .from("locations")
-      .select("*")
-      .eq("share_mode", "PUBLIC");
-
+    const { data } = await query;
     data?.forEach(updateMarker);
-    connectionStatus = "✅ Live";
 
     channel = supabase.channel("live-locations")
       .on("postgres_changes",
         { event: "*", schema: "public", table: "locations" },
-        (p) => p.new && p.new.share_mode === "PUBLIC" && updateMarker(p.new)
+        (p) => p.new && (
+          targetUserId
+            ? p.new.user_id === targetUserId
+            : p.new.share_mode === "PUBLIC"
+        ) && updateMarker(p.new)
       )
       .subscribe();
 
+    connectionStatus = "✅ Live";
     setInterval(cleanupStale, 5_000);
-    setTimeout(() => map.invalidateSize(), 500);
   });
 
   onDestroy(() => {
@@ -156,37 +185,42 @@
   });
 </script>
 
-<div class="viewer-container">
-  <header class="header">
+<div class="viewer">
+  <header>
     <h1>🌍 Live Tracker</h1>
-    <div class="status">
-      <span class="dot" class:live={connectionStatus.includes("✅")}></span>
-      {connectionStatus}
-    </div>
+    <span>{connectionStatus}</span>
   </header>
+
+  <button
+    class:active={autoFollow}
+    class="follow"
+    on:click={() => autoFollow = !autoFollow}
+  >
+    🧭 {autoFollow ? "Following" : "Free Pan"}
+  </button>
+
   <div id="map"></div>
 </div>
 
 <style>
   :global(html, body) {
     margin: 0;
-    padding: 0;
     height: 100%;
     overflow: hidden;
     font-family: system-ui, sans-serif;
   }
 
-  .viewer-container {
+  .viewer {
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    height: 100vh;
     background: #111;
   }
 
-  .header {
-    padding: 10px 20px;
+  header {
     background: #1e3c72;
     color: white;
+    padding: 10px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -199,16 +233,21 @@
     background: #222;
   }
 
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 6px;
-    background: #ffc107;
+  .follow {
+    position: absolute;
+    top: 64px;
+    right: 12px;
+    z-index: 1200;
+    padding: 8px 14px;
+    border-radius: 20px;
+    border: none;
+    background: #343a40;
+    color: white;
+    font-size: 13px;
+    cursor: pointer;
   }
 
-  .dot.live {
+  .follow.active {
     background: #28a745;
   }
 </style>

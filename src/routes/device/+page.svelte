@@ -22,8 +22,6 @@
   let lastUploadTime = 0;
   let lastCoords = null;
 
-  const BASE_INTERVAL = 5000; // default 5s
-
   function initializeUserId() {
     user_id = localStorage.getItem("user_id") || crypto.randomUUID();
     localStorage.setItem("user_id", user_id);
@@ -37,9 +35,13 @@
   }
 
   async function uploadLocation(pos) {
-    const { latitude, longitude, speed = 0, accuracy = 0 } = pos.coords;
+    // 🛡️ Fix: Null-coalescing to prevent 'toFixed' errors on null speed
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const speed = pos.coords.speed ?? 0; 
+    const accuracy = pos.coords.accuracy ?? 0;
+    
     const now = Date.now();
-
     const movement = getMovementStatus(speed);
 
     // ⏱️ Adaptive throttle
@@ -48,33 +50,35 @@
 
     // 📍 Jitter filter
     if (lastCoords) {
-      const dLat = Math.abs(latitude - lastCoords.lat);
-      const dLng = Math.abs(longitude - lastCoords.lng);
+      const dLat = Math.abs(lat - lastCoords.lat);
+      const dLng = Math.abs(lng - lastCoords.lng);
       if (dLat < 0.00001 && dLng < 0.00001) return;
     }
 
-    lastCoords = { lat: latitude, lng: longitude };
+    lastCoords = { lat, lng };
 
+    // Update UI display safely
     currentCoords = {
-      lat: latitude.toFixed(6),
-      lng: longitude.toFixed(6),
+      lat: lat.toFixed(6),
+      lng: lng.toFixed(6),
       speed: speed.toFixed(2)
     };
 
     try {
-// Inside uploadLocation function
-const { error } = await supabase.from("locations").upsert(
-  {
-    user_id: user_id, // Match text
-    lat: latitude,    // Match double precision
-    lng: longitude,   // Match double precision
-    speed: speed,     // Match double precision
-    accuracy: accuracy,
-    status: movement.label,
-    updated_at: new Date().toISOString()
-  },
-  { onConflict: "user_id" } // Use the unique constraint
-);
+      // 🔗 Logic 5.2 aligned with Supabase unique user_id constraint
+      const { error } = await supabase.from("locations").upsert(
+        {
+          user_id,
+          lat,
+          lng,
+          speed,
+          accuracy,
+          status: movement.label,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "user_id" }
+      );
+
       if (error) throw error;
 
       updateCount++;
@@ -101,7 +105,7 @@ const { error } = await supabase.from("locations").upsert(
         console.error(err);
       },
       {
-        enableHighAccuracy: false,
+        enableHighAccuracy: true, // Improved for Vehicle tracking
         maximumAge: 3000,
         timeout: 15000
       }
@@ -139,19 +143,16 @@ const { error } = await supabase.from("locations").upsert(
   </div>
 
   <div class="main-card">
-    <!-- Status Indicator -->
     <div class="status-badge" class:active={isTracking} class:error={status.includes('❌')}>
       <span class="pulse" class:active={isTracking}></span>
       {status}
     </div>
 
-    <!-- User Info -->
     <div class="info-section">
       <label>Device ID</label>
       <code class="user-id">{user_id.slice(0, 8)}...{user_id.slice(-4)}</code>
     </div>
 
-    <!-- Coordinates Display -->
     {#if currentCoords.lat}
       <div class="coords-grid">
         <div class="coord-item">
@@ -169,7 +170,6 @@ const { error } = await supabase.from("locations").upsert(
       </div>
     {/if}
 
-    <!-- Stats -->
     <div class="stats">
       <div class="stat-box">
         <div class="stat-value">{updateCount}</div>
@@ -187,20 +187,13 @@ const { error } = await supabase.from("locations").upsert(
       {/if}
     </div>
 
-    <!-- Controls -->
     <div class="controls">
       {#if isTracking}
-        <button class="btn btn-stop" on:click={stopTracking}>
-          ⏸️ Pause Tracking
-        </button>
+        <button class="btn btn-stop" on:click={stopTracking}>⏸️ Pause Tracking</button>
       {:else}
-        <button class="btn btn-start" on:click={startTracking}>
-          ▶️ Start Tracking
-        </button>
+        <button class="btn btn-start" on:click={startTracking}>▶️ Start Tracking</button>
       {/if}
-      <button class="btn btn-manual" on:click={sendManualUpdate}>
-        🔄 Force Update
-      </button>
+      <button class="btn btn-manual" on:click={sendManualUpdate}>🔄 Force Update</button>
     </div>
   </div>
 
@@ -212,244 +205,29 @@ const { error } = await supabase.from("locations").upsert(
 <style>
   :global(body) {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
   }
-
-  .sender-container {
-    max-width: 500px;
-    margin: 0 auto;
-    padding: 20px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .header {
-    text-align: center;
-    color: white;
-    margin-bottom: 20px;
-  }
-
-  .header h1 {
-    margin: 0;
-    font-size: 2rem;
-    font-weight: 700;
-  }
-
-  .subtitle {
-    margin: 5px 0 0;
-    opacity: 0.9;
-    font-size: 0.9rem;
-  }
-
-  .main-card {
-    background: white;
-    border-radius: 20px;
-    padding: 25px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    flex-grow: 1;
-  }
-
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 15px 20px;
-    border-radius: 12px;
-    background: #f8f9fa;
-    font-weight: 600;
-    margin-bottom: 20px;
-    border: 2px solid #e9ecef;
-    transition: all 0.3s ease;
-  }
-
-  .status-badge.active {
-    background: #d4edda;
-    border-color: #28a745;
-    color: #155724;
-  }
-
-  .status-badge.error {
-    background: #f8d7da;
-    border-color: #dc3545;
-    color: #721c24;
-  }
-
-  .pulse {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #6c757d;
-  }
-
-  .pulse.active {
-    background: #28a745;
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
-  .info-section {
-    margin: 20px 0;
-  }
-
-  .info-section label {
-    display: block;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    color: #6c757d;
-    margin-bottom: 5px;
-    font-weight: 600;
-  }
-
-  .user-id {
-    display: block;
-    background: #f8f9fa;
-    padding: 10px;
-    border-radius: 8px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-    color: #495057;
-    word-break: break-all;
-  }
-
-  .coords-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 15px;
-    margin: 20px 0;
-  }
-
-  .coord-item {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 10px;
-    text-align: center;
-  }
-
-  .coord-item:last-child {
-    grid-column: 1 / -1;
-  }
-
-  .coord-item .label {
-    display: block;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    color: #6c757d;
-    margin-bottom: 5px;
-    font-weight: 600;
-  }
-
-  .coord-item .value {
-    display: block;
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #212529;
-    font-family: 'Courier New', monospace;
-  }
-
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-    gap: 10px;
-    margin: 20px 0;
-  }
-
-  .stat-box {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 15px;
-    border-radius: 10px;
-    text-align: center;
-  }
-
-  .stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-bottom: 5px;
-  }
-
-  .stat-label {
-    font-size: 0.7rem;
-    opacity: 0.9;
-    text-transform: uppercase;
-  }
-
-  .controls {
-    display: flex;
-    gap: 10px;
-    margin-top: 20px;
-  }
-
-  .btn {
-    flex: 1;
-    padding: 14px;
-    border: none;
-    border-radius: 10px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  .btn-start {
-    background: #28a745;
-    color: white;
-  }
-
-  .btn-start:hover {
-    background: #218838;
-    transform: translateY(-2px);
-  }
-
-  .btn-stop {
-    background: #ffc107;
-    color: #212529;
-  }
-
-  .btn-stop:hover {
-    background: #e0a800;
-    transform: translateY(-2px);
-  }
-
-  .btn-manual {
-    background: #007bff;
-    color: white;
-  }
-
-  .btn-manual:hover {
-    background: #0056b3;
-    transform: translateY(-2px);
-  }
-
-  .footer-note {
-    text-align: center;
-    color: white;
-    margin-top: 20px;
-    font-size: 0.85rem;
-    opacity: 0.9;
-    padding: 15px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    backdrop-filter: blur(10px);
-  }
-
-  @media (max-width: 480px) {
-    .sender-container {
-      padding: 15px;
-    }
-
-    .coords-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .coord-item:last-child {
-      grid-column: 1;
-    }
-  }
+  .sender-container { max-width: 500px; margin: 0 auto; padding: 20px; display: flex; flex-direction: column; }
+  .header { text-align: center; color: white; margin-bottom: 20px; }
+  .main-card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .status-badge { display: flex; align-items: center; gap: 10px; padding: 15px; border-radius: 12px; background: #f8f9fa; font-weight: 600; margin-bottom: 20px; border: 2px solid #e9ecef; }
+  .status-badge.active { background: #d4edda; border-color: #28a745; color: #155724; }
+  .pulse { width: 12px; height: 12px; border-radius: 50%; background: #6c757d; }
+  .pulse.active { background: #28a745; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .user-id { display: block; background: #f8f9fa; padding: 10px; border-radius: 8px; font-family: monospace; }
+  .coords-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }
+  .coord-item { background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center; }
+  .coord-item:last-child { grid-column: 1 / -1; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0; }
+  .stat-box { background: #764ba2; color: white; padding: 10px; border-radius: 10px; text-align: center; font-size: 0.8rem; }
+  .stat-value { font-size: 1.2rem; font-weight: 700; }
+  .controls { display: flex; gap: 10px; }
+  .btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; }
+  .btn-start { background: #28a745; color: white; }
+  .btn-stop { background: #ffc107; }
+  .btn-manual { background: #007bff; color: white; }
+  .footer-note { text-align: center; color: white; margin-top: 20px; opacity: 0.8; font-size: 0.8rem; }
 </style>

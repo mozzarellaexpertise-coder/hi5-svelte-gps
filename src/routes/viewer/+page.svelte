@@ -3,6 +3,7 @@
   import { browser } from "$app/environment";
   import { createClient } from "@supabase/supabase-js";
 
+  // --- Supabase client ---
   const supabase = createClient(
     "https://uygdeyofmqhfnpyrqtpf.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
@@ -17,18 +18,23 @@
   const trails = {};
   const lastSeen = {};
 
-  const STALE_MS = 30_000;
-  const REMOVE_MS = 60_000;
+  const STALE_MS = 30_000;      // Markers fade after 30s
+  const REMOVE_MS = 60_000;     // Remove after 1min
   const MAX_TRAIL = 20;
 
-  // 🧭 HANDLE
+  // --- HANDLE ---
   let handleInput = "";
   let targetHandle = null;
 
-  // 🧭 AUTO FOLLOW
+  // --- AUTO FOLLOW ---
   let autoFollow = true;
   let lastCenter = null;
   const FOLLOW_DISTANCE_M = 10;
+
+  // --- HELPERS ---
+  function normalizeHandle(h) {
+    return h?.trim().toLowerCase() || null;
+  }
 
   function metersBetween(a, b) {
     const R = 6371000;
@@ -79,7 +85,6 @@
         opacity: 0.7
       }).addTo(map);
     }
-
     const latlngs = trails[handle].getLatLngs();
     latlngs.push([lat, lng]);
     if (latlngs.length > MAX_TRAIL) latlngs.shift();
@@ -90,7 +95,8 @@
     const { handle, lat, lng, status, speed } = user;
     if (!lat || !lng || !handle) return;
 
-    lastSeen[handle] = Date.now();
+    const normalizedHandle = normalizeHandle(handle);
+    lastSeen[normalizedHandle] = Date.now();
 
     const popup = `
       <b>${handle}</b><br>
@@ -98,18 +104,18 @@
       ${speed?.toFixed(2) ?? "0.00"} m/s
     `;
 
-    if (markers[handle]) {
-      markers[handle].setLatLng([lat, lng]);
-      markers[handle].setIcon(markerIcon(status));
+    if (markers[normalizedHandle]) {
+      markers[normalizedHandle].setLatLng([lat, lng]);
+      markers[normalizedHandle].setIcon(markerIcon(status));
     } else {
-      markers[handle] = L.marker([lat, lng], {
+      markers[normalizedHandle] = L.marker([lat, lng], {
         icon: markerIcon(status)
       }).bindPopup(popup).addTo(map);
     }
 
-    updateTrail(user);
+    updateTrail({ ...user, handle: normalizedHandle });
 
-    // 🧭 AUTO FOLLOW
+    // AUTO FOLLOW
     if (autoFollow) {
       if (!lastCenter) {
         map.setView([lat, lng], 16);
@@ -140,16 +146,19 @@
 
   function jumpToHandle() {
     if (!handleInput) return;
-    window.location.href = `/viewer?handle=${handleInput}`;
+    window.location.href = `/viewer?handle=${normalizeHandle(handleInput)}`;
   }
 
+  // --- LIFECYCLE ---
   onMount(async () => {
     if (!browser) return;
 
+    // --- URL PARAMS ---
     const params = new URLSearchParams(window.location.search);
-    targetHandle = params.get("handle");
+    targetHandle = normalizeHandle(params.get("handle"));
     handleInput = targetHandle ?? "";
 
+    // --- LEAFLET ---
     const Leaflet = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
     L = Leaflet.default || Leaflet;
@@ -157,8 +166,9 @@
     map = L.map("map").setView([16.8661, 96.1951], 12);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-    map.on("dragstart zoomstart", () => autoFollow = false);
+    map.on("dragstart zoomstart", () => (autoFollow = false));
 
+    // --- FETCH LAST LOCATION ---
     if (targetHandle) {
       const { data } = await supabase
         .from("locations")
@@ -169,19 +179,24 @@
       data?.forEach(updateMarker);
     }
 
-    channel = supabase.channel("live-locations")
+    // --- REALTIME ---
+    channel = supabase
+      .channel("live-locations")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "locations" },
         (p) => {
           if (!p.new || !p.new.handle) return;
-          if (targetHandle && p.new.handle !== targetHandle) return;
+          if (targetHandle && normalizeHandle(p.new.handle) !== targetHandle)
+            return;
           updateMarker(p.new);
         }
       )
       .subscribe();
 
     connectionStatus = "✅ Live";
+
+    // --- CLEANUP INTERVAL ---
     setInterval(cleanupStale, 5_000);
   });
 
@@ -202,7 +217,7 @@
     <span>{connectionStatus}</span>
   </header>
 
-  <button class="follow" class:active={autoFollow} on:click={() => autoFollow = !autoFollow}>
+  <button class="follow" class:active={autoFollow} on:click={() => (autoFollow = !autoFollow)}>
     🧭 {autoFollow ? "Following" : "Free Pan"}
   </button>
 
@@ -214,6 +229,7 @@
     margin: 0;
     height: 100%;
   }
+
   header {
     height: 56px;
     background: #1e3c72;
@@ -241,39 +257,34 @@
     flex: 1;
   }
 
-.follow {
-  position: absolute;
-  top: 80px;
-  right: 12px;
-  z-index: 1100;
-  padding: 10px 16px;
-  border-radius: 30px;
-  border: 2px solid white;
-  background: #343a40;
-  color: white;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  font-weight: bold;
-  transition: all 0.2s ease;
-}  
+  .follow {
+    position: absolute;
+    top: 80px;
+    right: 12px;
+    z-index: 1100;
+    padding: 10px 16px;
+    border-radius: 30px;
+    border: 2px solid white;
+    background: #343a40;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    font-weight: bold;
+    transition: all 0.2s ease;
+  }
 
   .follow.active {
     background: #28a745;
   }
 
-
   .viewer {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    position: relative; /* Added to anchor the absolute button correctly */
+    position: relative;
   }
-
-  /* ... other styles ... */
-
 
   .follow:active {
     transform: scale(0.95);
   }
-
 </style>

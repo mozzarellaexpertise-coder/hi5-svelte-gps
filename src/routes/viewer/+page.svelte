@@ -241,17 +241,21 @@
     flex: 1;
   }
 
-  .follow {
-    position: absolute;
-    top: calc(56px + 12px);
-    right: 12px;
-    z-index: 1000;
-    padding: 8px 14px;
-    border-radius: 20px;
-    border: none;
-    background: #343a40;
-    color: white;
-  }
+.follow {
+  position: absolute;
+  top: 80px;
+  right: 12px;
+  z-index: 1100;
+  padding: 10px 16px;
+  border-radius: 30px;
+  border: 2px solid white;
+  background: #343a40;
+  color: white;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  font-weight: bold;
+  transition: all 0.2s ease;
+}  
 
   .follow.active {
     background: #28a745;
@@ -267,23 +271,6 @@
 
   /* ... other styles ... */
 
-  .follow {
-    position: absolute;
-    /* Move it lower to avoid overlapping Leaflet's +/- controls */
-    top: 80px; 
-    right: 12px;
-    /* Ensure it is ABOVE all map tiles and markers */
-    z-index: 1100; 
-    padding: 10px 16px;
-    border-radius: 30px;
-    border: 2px solid white; /* Make it pop against the map */
-    background: #343a40;
-    color: white;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    font-weight: bold;
-    transition: all 0.2s ease;
-  }
 
   .follow:active {
     transform: scale(0.95);

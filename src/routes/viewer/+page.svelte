@@ -216,6 +216,7 @@
     height: 100%;
   }
   header {
+    height: 56px;
     background: #1e3c72;
     color: white;
     padding: 10px;
@@ -243,7 +244,7 @@
 
   .follow {
     position: absolute;
-    top: 70px;
+    top: calc(56px + 12px);
     right: 12px;
     z-index: 1000;
     padding: 8px 14px;

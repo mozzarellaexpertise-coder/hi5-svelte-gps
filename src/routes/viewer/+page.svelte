@@ -193,7 +193,6 @@
 
 <div class="viewer">
   <header>
-    <h1>User :</h1>
     <input
       placeholder="Enter handle…"
       bind:value={handleInput}

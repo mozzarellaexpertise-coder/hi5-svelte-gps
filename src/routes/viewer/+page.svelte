@@ -3,35 +3,38 @@
   import { browser } from "$app/environment";
   import { createClient } from "@supabase/supabase-js";
 
-  // --- Supabase client ---
+  // ---------------- SUPABASE ----------------
   const supabase = createClient(
     "https://uygdeyofmqhfnpyrqtpf.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5Z2RleW9mbXFoZm5weXJxdHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3ODI2MzMsImV4cCI6MjA4MjM1ODYzM30.QoxMgJ-roPqhYJhceAxZ4tg1oeMqZiyE7s_-xGNCMik"
   );
 
+  // ---------------- STATE ----------------
   let map;
   let L;
   let channel;
+  let cleanupTimer;
+
   let connectionStatus = "Connecting…";
 
   const markers = {};
   const trails = {};
   const lastSeen = {};
 
-  const STALE_MS = 30_000;      // Markers fade after 30s
-  const REMOVE_MS = 60_000;     // Remove after 1min
+  const STALE_MS = 30_000;
+  const REMOVE_MS = 60_000;
   const MAX_TRAIL = 20;
 
-  // --- HANDLE ---
+  // ---------------- HANDLE ----------------
   let handleInput = "";
   let targetHandle = null;
 
-  // --- AUTO FOLLOW ---
+  // ---------------- AUTO FOLLOW ----------------
   let autoFollow = true;
   let lastCenter = null;
   const FOLLOW_DISTANCE_M = 10;
 
-  // --- HELPERS ---
+  // ---------------- HELPERS ----------------
   function normalizeHandle(h) {
     return h?.trim().toLowerCase() || null;
   }
@@ -58,12 +61,11 @@
   }
 
   function markerIcon(status, opacity = 1) {
-    const color = statusColor(status);
     return L.divIcon({
       className: "custom-marker",
       html: `
         <div style="
-          background:${color};
+          background:${statusColor(status)};
           opacity:${opacity};
           width:24px;height:24px;
           border-radius:50% 50% 50% 0;
@@ -76,47 +78,54 @@
     });
   }
 
-  function updateTrail(user) {
-    const { handle, lat, lng, status } = user;
+  // ---------------- TRAILS ----------------
+  function updateTrail({ handle, lat, lng, status }) {
     if (!trails[handle]) {
       trails[handle] = L.polyline([], {
-        color: statusColor(status),
         weight: 3,
         opacity: 0.7
       }).addTo(map);
     }
+
+    trails[handle].setStyle({ color: statusColor(status) });
+
     const latlngs = trails[handle].getLatLngs();
     latlngs.push([lat, lng]);
     if (latlngs.length > MAX_TRAIL) latlngs.shift();
     trails[handle].setLatLngs(latlngs);
   }
 
+  // ---------------- MARKERS ----------------
   function updateMarker(user) {
     const { handle, lat, lng, status, speed } = user;
-    if (!lat || !lng || !handle) return;
+    if (!handle || lat == null || lng == null) return;
 
-    const normalizedHandle = normalizeHandle(handle);
-    lastSeen[normalizedHandle] = Date.now();
+    const h = normalizeHandle(handle);
+    lastSeen[h] = Date.now();
 
     const popup = `
       <b>${handle}</b><br>
       ${status}<br>
-      ${speed?.toFixed(2) ?? "0.00"} m/s
+      ${(speed ?? 0).toFixed(2)} m/s
     `;
 
-    if (markers[normalizedHandle]) {
-      markers[normalizedHandle].setLatLng([lat, lng]);
-      markers[normalizedHandle].setIcon(markerIcon(status));
+    if (markers[h]) {
+      markers[h]
+        .setLatLng([lat, lng])
+        .setIcon(markerIcon(status))
+        .setPopupContent(popup);
     } else {
-      markers[normalizedHandle] = L.marker([lat, lng], {
+      markers[h] = L.marker([lat, lng], {
         icon: markerIcon(status)
-      }).bindPopup(popup).addTo(map);
+      })
+        .bindPopup(popup)
+        .addTo(map);
     }
 
-    updateTrail({ ...user, handle: normalizedHandle });
+    updateTrail({ handle: h, lat, lng, status });
 
-    // AUTO FOLLOW
-    if (autoFollow) {
+    // ---------- AUTO FOLLOW (TARGET ONLY) ----------
+    if (autoFollow && (!targetHandle || h === targetHandle)) {
       if (!lastCenter) {
         map.setView([lat, lng], 16);
         lastCenter = { lat, lng };
@@ -130,10 +139,17 @@
     }
   }
 
+  // ---------------- CLEANUP ----------------
   function cleanupStale() {
     const now = Date.now();
+
     Object.keys(markers).forEach((h) => {
       const age = now - (lastSeen[h] || 0);
+
+      if (age > STALE_MS && age < REMOVE_MS) {
+        markers[h].setIcon(markerIcon("STATIONARY", 0.4));
+      }
+
       if (age > REMOVE_MS) {
         map.removeLayer(markers[h]);
         map.removeLayer(trails[h]);
@@ -149,16 +165,14 @@
     window.location.href = `/viewer?handle=${normalizeHandle(handleInput)}`;
   }
 
-  // --- LIFECYCLE ---
+  // ---------------- LIFECYCLE ----------------
   onMount(async () => {
     if (!browser) return;
 
-    // --- URL PARAMS ---
     const params = new URLSearchParams(window.location.search);
     targetHandle = normalizeHandle(params.get("handle"));
     handleInput = targetHandle ?? "";
 
-    // --- LEAFLET ---
     const Leaflet = await import("leaflet");
     await import("leaflet/dist/leaflet.css");
     L = Leaflet.default || Leaflet;
@@ -168,7 +182,7 @@
 
     map.on("dragstart zoomstart", () => (autoFollow = false));
 
-    // --- FETCH LAST LOCATION ---
+    // ----- FETCH LAST KNOWN -----
     if (targetHandle) {
       const { data } = await supabase
         .from("locations")
@@ -179,14 +193,14 @@
       data?.forEach(updateMarker);
     }
 
-    // --- REALTIME ---
+    // ----- REALTIME -----
     channel = supabase
       .channel("live-locations")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "locations" },
+        { event: "UPDATE", schema: "public", table: "locations" },
         (p) => {
-          if (!p.new || !p.new.handle) return;
+          if (!p.new?.handle) return;
           if (targetHandle && normalizeHandle(p.new.handle) !== targetHandle)
             return;
           updateMarker(p.new);
@@ -196,11 +210,11 @@
 
     connectionStatus = "✅ Live";
 
-    // --- CLEANUP INTERVAL ---
-    setInterval(cleanupStale, 5_000);
+    cleanupTimer = setInterval(cleanupStale, 5000);
   });
 
   onDestroy(() => {
+    if (cleanupTimer) clearInterval(cleanupTimer);
     if (channel) supabase.removeChannel(channel);
     if (map) map.remove();
   });
@@ -217,7 +231,11 @@
     <span>{connectionStatus}</span>
   </header>
 
-  <button class="follow" class:active={autoFollow} on:click={() => (autoFollow = !autoFollow)}>
+  <button
+    class="follow"
+    class:active={autoFollow}
+    on:click={() => (autoFollow = !autoFollow)}
+  >
     🧭 {autoFollow ? "Following" : "Free Pan"}
   </button>
 
@@ -230,6 +248,13 @@
     height: 100%;
   }
 
+  .viewer {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
   header {
     height: 56px;
     background: #1e3c72;
@@ -240,17 +265,11 @@
     align-items: center;
   }
 
-  header input {
+  header input,
+  header button {
     padding: 6px;
     border-radius: 4px;
     border: none;
-  }
-
-  header button {
-    padding: 6px 10px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
   }
 
   #map {
@@ -268,23 +287,10 @@
     background: #343a40;
     color: white;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     font-weight: bold;
-    transition: all 0.2s ease;
   }
 
   .follow.active {
     background: #28a745;
-  }
-
-  .viewer {
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-  }
-
-  .follow:active {
-    transform: scale(0.95);
   }
 </style>
